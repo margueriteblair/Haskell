@@ -18,3 +18,7 @@ False
 adaToUSD ada = ada * 0.08
 usdToADA usd = usd / (8 / 100) -- the '/' function required arguments whose type is in the class fractional
 --div function requires integers
+myFavoriteBCProject = "Cardano" --no args, but will always return cardano
+
+acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have never seen that before"
+--basics of conditional statements
