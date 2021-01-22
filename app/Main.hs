@@ -22,3 +22,8 @@ myFavoriteBCProject = "Cardano" --no args, but will always return cardano
 
 acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have never seen that before"
 --basics of conditional statements
+
+--a string is just a list of chars as evidenced by
+-- he :t "hi" :: [Char]
+--['i', 'o'] ++ ['h', 'k'] string concatenation
+-- 1 : [2, 3, 1, 4] this will add 1 to the front of the list
