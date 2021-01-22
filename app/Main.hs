@@ -34,3 +34,5 @@ acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have 
 --last is the last
 --init is everything that's not last-
 --tail is everything that's not first
+--other list functions: sum, product, length
+--2 `elem` [1,2,3,4,5] will return true b/c 2 is in the haskell list
