@@ -27,3 +27,5 @@ acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have 
 -- he :t "hi" :: [Char]
 --['i', 'o'] ++ ['h', 'k'] string concatenation
 -- 1 : [2, 3, 1, 4] this will add 1 to the front of the list
+--'P' : 'l' : 'u' : 't' : 'u' : 's' : [] adds to a list backwards to produce the string 'Plutus'
+--there's no loop in haskell/functional programmng
