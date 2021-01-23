@@ -41,3 +41,5 @@ acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have 
 --for instance, [1..100] can create an ordered list 1-100 on its own
 --ranges can takea second arg, a step, where they incremet by the step
 --[20,19..5]
+--concepts of infinite lists: [1..] it never stops
+
