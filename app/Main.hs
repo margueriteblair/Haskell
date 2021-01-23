@@ -41,7 +41,20 @@ acronymBuster acronym = if acronym == "PoS" then "Proof of Stake"  else "I have 
 --for instance, [1..100] can create an ordered list 1-100 on its own
 --ranges can takea second arg, a step, where they incremet by the step
 --[20,19..5]
+
 --concepts of infinite lists: [1..] it never stops
 --take vs a finite range
 --haskell is lazy
+--take 30  $ cycle [1,3,4] will still  cycle the elements infinitely
+--but it'll stop once the list has 30 items
+--take has to args 1: items to take 2: list
+--replicate is an easier version of repeat
+--replicate 6 7 replicate x y do y x times
+--set comprehensions: a way of defining a list of unique things/numbers
+--x is a natural number, 1 - inf, x is also less than 10
+--that second argument restricts everything to less than 10
+--once you've got those rules in place, you then multiply by 2
+--list comprehension!
+--not equal to /=
+--[x | x <- [10..20], x == 13 || x == 15 || x == 19]
 
