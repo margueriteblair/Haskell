@@ -60,3 +60,8 @@ data GameDataType
 instance Scripts.ScriptType GameDataType where
     type instance DatumType GameDataType = Integer
     type instance RedeemerType GameDataType = Integer
+
+gameInstance :: Scripts.ScriptInstance GameDataType
+gameInstance = Scripts.validator @GameDataType
+    $$(PlutusTx.compile [|| validateGuess ||])
+    $$(PlutusTx.compile [|| Scripts.wrapValidator @Integer @Integer ||])
