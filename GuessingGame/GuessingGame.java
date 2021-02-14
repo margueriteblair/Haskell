@@ -11,6 +11,18 @@ public class GuessingGame {
         System.out.println("Wallet 1: PLEASE LOCK THE AMOUNT ?");
         int lockedValue = console.nextInt();
         W1 -= lockedValue;
+
+        while (true) {
+            System.out.println("WALLET 2: WHAT IS YOUR GUESS ?");
+            int guess = console.nextInt();
+            if (guess == secretNum) {
+                W2 += lockedValue;
+            } else if (guess < secretNum) {
+                System.out.println("It's higher!");
+            } else {
+                System.out.println("It's lower!");
+            }
+        }
     }
 
     private static void printBalance() {
