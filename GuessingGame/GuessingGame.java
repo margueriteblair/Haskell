@@ -4,12 +4,13 @@ import java.util.*;
 public class GuessingGame {
 
     private static int W1 = 10, W2 = 10;
+    private static int MAGIC_NUM = 123, MAX=256;
     public static void main(String[] args) {
         final Scanner console = new Scanner(System.in);
-        final int secretNum = new Random().nextInt();
+        final int secretNum = new Random().nextInt(MAX);
 
         printBalance();
-        System.out.println("Wallet 1: PLEASE LOCK THE AMOUNT ?");
+        System.out.println("WALLET 1: PLEASE LOCK THE AMOUNT ?");
         int lockedValue = console.nextInt();
         W1 -= lockedValue;
 
@@ -28,6 +29,7 @@ public class GuessingGame {
 
         System.out.println("Congrats, you've won!");
         printBalance();
+        console.close();
     }
 
     private static void printBalance() {
