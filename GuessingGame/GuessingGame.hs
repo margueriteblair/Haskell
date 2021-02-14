@@ -12,3 +12,6 @@ import           Wallet.Emulator.Wallet    (Wallet, walletPubKey)
 
 randomNum :: Integer
 randomNum = toInteger $ fromEnum $ C.last $ C.pack $ show $ walletPubKey $ Wallet 1
+
+magicNum :: Integer
+magicNum = 123
