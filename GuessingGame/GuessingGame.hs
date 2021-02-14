@@ -65,3 +65,8 @@ gameInstance :: Scripts.ScriptInstance GameDataType
 gameInstance = Scripts.validator @GameDataType
     $$(PlutusTx.compile [|| validateGuess ||])
     $$(PlutusTx.compile [|| Scripts.wrapValidator @Integer @Integer ||])
+
+type GameSchema =
+    BlockchainActions
+        .\/ Endpoint "lock" LockParams
+        .\/ Endpoint "guess" GuessParams
