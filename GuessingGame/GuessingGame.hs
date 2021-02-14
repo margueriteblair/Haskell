@@ -9,3 +9,6 @@ import qualified Ledger.Typed.Scripts      as Scripts
 import           Playground.Contract
 import qualified Prelude
 import           Wallet.Emulator.Wallet    (Wallet, walletPubKey)
+
+randomNum :: Integer
+randomNum = toInteger $ fromEnum $ C.last $ C.pack $ show $ walletPubKey $ Wallet 1
