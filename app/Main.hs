@@ -15,3 +15,13 @@ in_range2 min max x = if ilb then iub else False
 fac n =
     if n <= 1 then 1
     else n * fac (n - 1)
+
+is_zero 0 = True
+is_zero _ = False
+--the underscore _ is a wildcard character
+
+fac2 n = aux n 1
+    where
+        aux n acc
+            n <= 1 = acc
+            otherwise = aux (n-1) (n*acc)
