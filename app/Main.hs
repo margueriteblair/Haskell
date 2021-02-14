@@ -11,3 +11,7 @@ in_range2 min max x = if ilb then iub else False
     where 
         ilb = min <= x
         iub = max >= x
+
+fac n =
+    if n <= 1 then 1
+    else n * fac (n - 1)
