@@ -1,4 +1,5 @@
 import java.util.Scanner;
+import java.util.*;
 
 public class GuessingGame {
 
@@ -17,12 +18,16 @@ public class GuessingGame {
             int guess = console.nextInt();
             if (guess == secretNum) {
                 W2 += lockedValue;
+                break;
             } else if (guess < secretNum) {
                 System.out.println("It's higher!");
             } else {
                 System.out.println("It's lower!");
             }
         }
+
+        System.out.println("Congrats, you've won!");
+        printBalance();
     }
 
     private static void printBalance() {
