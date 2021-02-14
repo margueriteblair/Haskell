@@ -70,3 +70,11 @@ type GameSchema =
     BlockchainActions
         .\/ Endpoint "lock" LockParams
         .\/ Endpoint "guess" GuessParams
+
+endpoints :: AsContractError e => Contract GameSchema e ()
+endpoints = lock `select` guess
+
+-- lastly, we gonna bind the everything to the playground via GameSchema
+mkSchemaDefinitions ''GameSchema
+
+$(mkKnownCurrencies [])
