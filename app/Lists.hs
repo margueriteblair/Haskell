@@ -17,3 +17,7 @@ asc 1 3 --should return [1, 2, 3]
 
 --the following code will create a list of tuples
 [(x, y) | x <- [1,2,3], y <- ['a', 'b']]
+
+addTuples :: [(Int, Int)] -> [Int]
+addTuples xs = [x+y | (x, y) <- xs]
+addTuples [(1, 2), (2,3), (100, 100)] --should return [3,5,200]
