@@ -14,3 +14,6 @@ asc 1 3 --should return [1, 2, 3]
 --list comprehensions, first one has a predicate
 [2*x | x <- [1,2,3], x > 1]
 [2*x | x <- [1,2,3]]
+
+--the following code will create a list of tuples
+[(x, y) | x <- [1,2,3], y <- ['a', 'b']]
