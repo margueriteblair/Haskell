@@ -16,3 +16,4 @@ nub (x:xs)
 --3. Create a function isAsc that returns True if the list given to it is a list of ascending order
 isAsc :: [Int] -> Bool
 --4. 
+--four
