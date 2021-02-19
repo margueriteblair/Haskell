@@ -25,7 +25,14 @@ z :: Float
 z = 3.14159
 
 --The below is IMPROPER HASKELL SYNTAX, BUT we want to find a way to store variables that are created within the functional logic
+-- in_range2 min max x =
+--     in_lower_bound = min <= x;
+--     in_upper_bound = max >= x;
+--     return (in_lower_bound && in_upper_bound)
+-- We can use a 'let' binding below to utilize the same logic
+in_range2 :: Integer -> Integer -> Integer -> Bool
 in_range2 min max x =
-    in_lower_bound = min <= x;
-    in_upper_bound = max >= x;
-    return (in_lower_bound && in_upper_bound)
+    let in_lower_bound = min <= x
+        in_upper_bound = max >= x
+    in
+        in_lower_bound && in_upper_bound
