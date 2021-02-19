@@ -20,8 +20,12 @@ is_zero 0 = True
 is_zero _ = False
 --the underscore _ is a wildcard character
 
-fac2 n = aux n 1
-    where
-        aux n acc
-            n <= 1 = acc
-            otherwise = aux (n-1) (n*acc)
+--Other notes:
+--In functional programming, we're interested in pure functions
+--When we say pure functions, we mean that the functions we create in Haskell
+--Have an input, some arguments, an output and nothing else
+--All of our datatype are immutable, once they are created, they cannot be changed
+--No/Less side effects in FP
+--Declarative
+--Easier to verify
+
