@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 641b1517e6f6bb67ec71b83b41bd690935434389735087391fee27036baa783c
+-- hash: 9704d3f7ba56e9a86fbeda71766aa5ff76364553847f61a712030cc4beb2b058
 
 name:           PathToPlutus
 version:        0.1.0.0
@@ -39,6 +39,9 @@ library
 executable PathToPlutus-exe
   main-is: Main.hs
   other-modules:
+      LetWhere
+      Lists
+      Recursion
       Paths_PathToPlutus
   hs-source-dirs:
       app
