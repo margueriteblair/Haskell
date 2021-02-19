@@ -39,3 +39,7 @@ in_range2 min max x =
         in_lower_bound && in_upper_bound
 
 in_range3 :: Integer -> Integer -> Integer -> Bool
+in_range3 min max x = ilb && iub
+    where
+        ilb = min <= x
+        iub = max >= x
