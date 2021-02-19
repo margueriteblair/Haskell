@@ -30,9 +30,12 @@ z = 3.14159
 --     in_upper_bound = max >= x;
 --     return (in_lower_bound && in_upper_bound)
 -- We can use a 'let' binding below to utilize the same logic
+-- We bind the result of some expression to a name
 in_range2 :: Integer -> Integer -> Integer -> Bool
 in_range2 min max x =
     let in_lower_bound = min <= x
         in_upper_bound = max >= x
     in
         in_lower_bound && in_upper_bound
+
+in_range3 :: Integer -> Integer -> Integer -> Bool
