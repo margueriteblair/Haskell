@@ -47,3 +47,5 @@ in_range3 min max x = ilb && iub
 --Enter into GHCI terminal:
 -- :t (+)
 -- returns: Num a => a -> a -> a
+
+-- You can also make a function infixed by adding backticks around it
