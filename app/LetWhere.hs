@@ -43,3 +43,7 @@ in_range3 min max x = ilb && iub
     where
         ilb = min <= x
         iub = max >= x
+
+--Enter into GHCI terminal:
+-- :t (+)
+-- returns: Num a => a -> a -> a
