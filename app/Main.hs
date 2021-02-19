@@ -28,4 +28,5 @@ is_zero _ = False
 --No/Less side effects in FP
 --Declarative
 --Easier to verify
+--Lazy evaluation, don't forget! Leads to less side effects and more efficient code
 
