@@ -3,7 +3,7 @@
 --ghc MyFile.hs will compile the Haskell file and give you other Haskell output files as well
 main :: IO ()
 main = do
-    print ("hello")
+    print (fac 5)
 
 --recusion within functions
 -- name <args> = ... name <args'> ...
