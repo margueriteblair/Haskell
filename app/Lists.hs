@@ -21,3 +21,6 @@ evens (x:xs)
 --Simple tuple function that would return the first element of a two element tuple
 fst :: (a, b) -> a
 fst (x, _) = x
+
+snd :: (a, b) -> b
+snd (_, y) = y
