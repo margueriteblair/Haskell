@@ -24,3 +24,6 @@ fst (x, _) = x
 
 snd :: (a, b) -> b
 snd (_, y) = y
+
+addTuples :: [(Int, Int)] -> [Int]
+addTuples xs = [ x+y | (x, y) <- xs]
