@@ -1,6 +1,6 @@
 main :: IO ()
 main = do
-    print (1 : 2 : 3 : 4 : 5 : [])
+    print (Main.sum [1, 2, 3])
 
 --A list is a particular ordering of elements
 --Every element has a fixed position
@@ -8,7 +8,7 @@ main = do
 
 sum :: [Int] -> Int
 sum [] = 0
-sum (x:xs) = x + sum xs
+sum (x:xs) = x + Main.sum xs
 
 evens :: [Int] -> [Int]
 evens [] = []
