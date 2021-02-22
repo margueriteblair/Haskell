@@ -15,3 +15,9 @@ evens [] = []
 evens (x:xs)
     | mod x 2 == 0 = x: evens xs
     | otherwise = evens xs
+
+--Tuples
+
+--Simple tuple function that would return the first element of a two element tuple
+fst :: (a, b) -> a
+fst (x, _) = x
