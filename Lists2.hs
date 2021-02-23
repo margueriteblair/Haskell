@@ -16,9 +16,11 @@ elem2 _ [] = False
 elem2 e (x:xs) = (e == x) || (elem2 e xs)
 
 --2. Create a function nub that removes all duplicates from a given list
+--Done with two pattern matchings
 nub :: (Eq a) => [a] -> [a]
 nub [] = []
 nub (x:xs)
+    --Infix syntax for elem function
     | x `Main.elem` xs = nub xs
     | otherwise = x : nub xs
 
