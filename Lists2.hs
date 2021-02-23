@@ -25,6 +25,12 @@ nub (x:xs)
     | otherwise = x : nub xs
 
 --3. Create a function isAsc that returns True if the list given to it is a list of ascending order
--- isAsc :: [Int] -> Bool
---4. 
---four
+--This one uses three pattern matchings
+isAsc :: [Int] -> Bool
+isAsc [] = True
+isAsc [x] = True
+isAsc (x:y:xs) =
+    (x <= y) && isAsc(y:xs)
+--4. We have a list if int tuples, they represent nodes that are connected to one another
+--Create a function hasPath that determines if a path from one node to another
+    --exists within a directed graph
