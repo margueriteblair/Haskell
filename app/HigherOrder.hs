@@ -18,3 +18,8 @@ add1 = (\x -> x+1)
 --These list types can change!
 -- map :: (a -> b) -> [a] -> [b]
 -- map (\n -> x+1) [1,2,3,4,5] => [2,3,4,5,6]
+
+--filter function is another higher order function
+--filter :: (a -> Bool) -> [a] -> [a]
+--filter (\(x, y) -> x /= y) [(1,2), (2, 2)]
+    --This would return [(1, 2)]
