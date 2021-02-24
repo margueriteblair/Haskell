@@ -1,6 +1,6 @@
 main :: IO ()
 main = do
-    print ("hi, haskell")
+    print (map (\x -> x+1) [1,2,3,4,5])
 
 --Higher order functions take in another function as an argument
 --Higher order function, it's applied to x in its definition
@@ -16,5 +16,5 @@ add1 = (\x -> x+1)
 --map function maps one list of this type a to another list of this type b
 --The first argument is a function and converts one list to the other
 --These list types can change!
-map :: (a -> b) -> [a] -> [b]
-map (\n -> x+1) [1,2,3,4,5] => [2,3,4,5,6]
+-- map :: (a -> b) -> [a] -> [b]
+-- map (\n -> x+1) [1,2,3,4,5] => [2,3,4,5,6]
