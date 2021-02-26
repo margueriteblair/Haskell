@@ -13,6 +13,8 @@ app f x = f x
 add1 :: Int -> Int
 add1 = (\x -> x+1)
 
+--HIGHER ORDER FUNCTIONS:
+
 --map function maps one list of this type a to another list of this type b
 --The first argument is a function and converts one list to the other
 --These list types can change!
