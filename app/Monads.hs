@@ -22,3 +22,9 @@ eval (Div x y) = eval x `div` eval y --this is problematic though, because y cou
 --The (/) function requires arguments whose type is in the class Fractional and performs standard division
 --The div function requires arguments whose type is in the class Integral and performs Integer division
 
+safediv :: Int -> Int -> Maybe Int
+safediv n m = if m == 0 then
+                Nothing
+            else
+                Just (n `div` m)
+
