@@ -29,9 +29,10 @@ safediv n m = if m == 0 then
                 Just (n `div` m)
 
 
+--This second eval expression will always give a well defined result
 eval2 :: Expr -> Maybe Int
 eval2 (Val n) = Just n
-eval2 (Div x y) = case eval2 x at
+eval2 (Div x y) = case eval2 x of
                     Nothing -> Nothing
                     Just n -> case eval2 y of
                         Nothing -> Nothing
