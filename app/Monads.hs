@@ -28,3 +28,12 @@ safediv n m = if m == 0 then
             else
                 Just (n `div` m)
 
+
+eval2 :: Expr -> Maybe Int
+eval2 (Val n) = Just n
+eval2 (Div x y) = case eval2 x at
+                    Nothing -> Nothing
+                    Just n -> case eval2 y of
+                        Nothing -> Nothing
+                        Just m -> safediv n m
+
