@@ -13,3 +13,9 @@ main = do
 --sum 
 --product
 --elem
+
+--list comprehensions
+let nums1 = [2^n | n <- [1..10]]
+let sodaSizes = [2^n | n <- [1..10], 2^n >= 10, 2^n < 100]
+let stringComp = [x | x <- "outrageous", not (elem x "aeiou")]
+-- Infix method of the above: [x | x <- "outrageous", not (x `elem` "aeiou")]
