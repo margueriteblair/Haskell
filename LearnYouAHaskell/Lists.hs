@@ -30,5 +30,12 @@ numbers2 = [1..8]
 words = ["one", "two", "three", "four", "five", "six", "seven", "eight"]
 
 
-[(fst p, fst q) | p <- pairs, q <-pairs)]
-[(fst p, fst q) | p <- pairs, q <-pairs, fst p < fst q]
+--Chapter 2 problem set:
+--Between 1 and 8, find all the pairs of numbers where the first num
+--is less than the second, but the spelling if lexographically more
+
+-- [(fst p, fst q) | p <- pairs, q <-pairs)] This one gets every possible combo
+-- [(fst p, fst q) | p <- pairs, q <-pairs, fst p < fst q] This one gets all possible combos where the number is greater
+-- zip numbers2 Main.words
+--[(fst p, fst q) | p <- pairs, q <- pairs, fst p < fst q, length (snd p) > length (snd q)]
+--[(3,4),(3,5),(3,6),(4,6),(5,6)] This is the result
