@@ -1,5 +1,8 @@
 --Each element in a linked list has a number and then a reference pointer that points to the next node
-let numbers = [4,8,15,16,23,43]
-    main :: IO ()
-    main = do
-        print (head numbers)
+main :: IO ()
+main = do
+    let numbers = 5 : 4 : 3 : 2 : 1 : []
+    print (length numbers)
+
+--Haskell data structures are immutable and never change
+
