@@ -28,7 +28,8 @@ stringComp = [x | x <- "outrageous", not (elem x "aeiou")]
 
 numbers2 = [1..8]
 words = ["one", "two", "three", "four", "five", "six", "seven", "eight"]
-
+pairs = zip numbers2 Main.words
+[(fst p, fst q) | p <- pairs, q <- pairs, fst p < fst q, length (snd p) > length (snd q)]
 
 --Chapter 2 problem set:
 --Between 1 and 8, find all the pairs of numbers where the first num
