@@ -19,13 +19,27 @@ import Playground.Contract
 --A schema is a combined list of other classes that contains effects such as producing transactions, collecitng inpus from users, and watching the blockchain for changes
 --Our 'BlockchainActions' schema will help produce txs and collect inputs from users
 --BlockchainActions is a default schema included in Plutus
-
+-- .\/ means merge
+--It's like returning an object that can be multiple things
+--
 hello :: Contract BlockchainActions T.Text ()
+--logInfo is a plutus function that return a contract type
+--logInfo is a composite function, a function of the result of a function
+--Contract(L.logInfo(a.toJSON())) prints the given string into the console
 hello = logInfo @String "Hello, world"
 
+
+--We've got this boiler plate code
+--All plutus code will have this boilerplate: an endpoints fn
+--Endpoints is a function that returns a contract
+--mkSchemaDefinition
+--mkKnownCurrencies
+--Two steps: function implemention, function definition
 endpoints :: Contract BlockchainActions T.Text ()
 endpoints = hello
 
+--You pass in whatever schema you'll be using, in this case BlockchainActions is our schema
 mkSchemaDefinitions ``BlockchainActions
 
+--mkKnownCurencies is for the playground to work properly
 $(mkKnownCurrencies [])
