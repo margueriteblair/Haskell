@@ -43,3 +43,7 @@ watch :: Int -> [Char]
 watch n = if n == 7
     then "7 o'clock and ... SHARKNADO!"
     else show n ++ " o'clock and all's well."
+
+watch2 :: Int -> [Char]
+watch2 7 = "7 o'clock and ... sharknado!"
+watch2 n = snow n ++ " o'clock and all's well."
