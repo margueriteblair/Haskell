@@ -1,6 +1,6 @@
 main :: IO ()
 main = do
-    print ("Hello")
+    print (watch3 7)
 
 -- For our first instrance of increasing function, our type signature
 -- tells us that for any ordered type a, this function takes a list of a's and returns a bool.
@@ -45,5 +45,10 @@ watch n = if n == 7
     else show n ++ " o'clock and all's well."
 
 watch2 :: Int -> [Char]
-watch2 7 = "7 o'clock and ... sharknado!"
-watch2 n = snow n ++ " o'clock and all's well."
+watch2 7 = "7 o'clock and ... sharknado!" --7 pattern needs to go first because Haskell will read these patterns in order!
+watch2 n = show n ++ " o'clock and all's well."
+
+watch3 :: Int -> [Char]
+watch3 n = show n ++ "o 'clock and " ++ message n
+        where message 7 = "... SHARKNADO!"
+              message _ = "all's well."
