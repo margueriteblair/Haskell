@@ -56,3 +56,6 @@ watch3 n = show n ++ "o 'clock and " ++ message n
 watch4 :: Int -> [Char]
 watch4 n = show n ++ " o'clock and " ++ case n of 7 -> "... SHARKNADO!"
                                         _ -> "all's well!"
+
+gravity :: (Fractional a) => a -> a
+gravity r = 6.674e-11 * 5.972e24 / (r^2)
