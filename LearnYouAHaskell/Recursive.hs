@@ -19,3 +19,10 @@ sum' (x:xs) = x + sum' xs
 product' :: (Ord a) => [a] -> a
 product' [] = 1
 product' (x:xs) = x * product' xs
+
+maximum' :: (Ord a) => [a] -> a
+maximum' [x] = x
+maximum' (x:xs)
+    |x > mx = x
+    |otherwise = mx
+    where mx = maximum' mx
