@@ -31,3 +31,10 @@ noVowels word = if word == ""
     else if head word `elem` "aeiouAEIOU"
         then noVowels (tail word)
         else (head word) : noVowels (tail word)
+
+
+noVowels2 :: [Char] -> [Char]
+noVowels2 "" = ""
+noVowels2 (x:xs)
+    | x `elem` "aeiouAEIOU" = noVowels2 xs
+    | otherwise = x : noVowels2 xs
