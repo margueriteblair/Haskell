@@ -20,3 +20,14 @@ increasing2 :: (Ord a) => [a] -> Bool
 increasing2 [] = True --Again, we say that this empty list is increasing
 increasing2 [x] = True --As is a list of one item
 increasing2 (x : y : ys) = x <= y && increasing (y:ys)
+
+increasing3 :: (Ord a)=> [a] -> Bool
+increasing3 (x : y : ys) = x <= y && increasing (y:ys)
+increasing3 _ = True
+
+noVowels :: [Char] -> [Char]
+noVowels word = if word == ""
+    then ""
+    else if head word `elem` "aeiouAEIOU"
+        then noVowels (tail word)
+        else (head word) : noVowels (tail word)
