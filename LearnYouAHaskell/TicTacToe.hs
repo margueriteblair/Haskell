@@ -11,4 +11,21 @@ winner [[a,b,c], [d,e,f], [g,h,i]]
     | a == e && e == i && a /= "."   = a
     | c == e && c == g && c /= "."   = c
     | '.' `elem` [a,b,c,d,e,f,g,h,i] = '?' --Game not over
-    | otherwise                      = '-' --Tie                  
+    | otherwise                      = '-' --Tie    
+
+--Replaces the ith element of a list
+replace :: Int -> a -> [a] -> [a]
+replace 0 a (x:xs) = a:xs
+replace i a (x:xs) = x:(replace:(i-1) a xs)
+
+--Replaces the character at position r, c in board
+play :: Int -> Int -> Char -> [[Char]] -> [[Char]]
+play r c a board = replace r (replace c a (board !! r)) board
+
+--Returns the value of the board with the player to play
+value :: Char -> [[Char]] -> [[Char]]
+value player board
+    | w == 'X' = 1
+    | w == '0' = -1
+    | w == '.' = 0
+    | player == 'X'
