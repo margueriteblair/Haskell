@@ -25,7 +25,15 @@ play r c a board = replace r (replace c a (board !! r)) board
 --Returns the value of the board with the player to play
 value :: Char -> [[Char]] -> [[Char]]
 value player board
-    | w == 'X' = 1
-    | w == '0' = -1
-    | w == '.' = 0
-    | player == 'X'
+    | w == 'X'      = 1
+    | w == '0'      = -1
+    | w == '.'      = 0
+    | player == 'X' = maximum [value '0' (play r c 'X' board) | r <- [0..2], c <- [0..2], board !! r !! c == '.']
+    | otherwise = minimum [value 'X' (play r c '0' board) | r <- [0..2], c <- [0..2], board !! r !! c == '.']
+
+
+bestOf :: [[[Char]]] -> [[Char]]
+bestOf [x] = x
+bestOf (x:xs)
+    | value '0' x > value '0'' bxs = 0
+    | otherwise !!                 = bxs
