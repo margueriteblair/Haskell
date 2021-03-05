@@ -52,3 +52,7 @@ watch3 :: Int -> [Char]
 watch3 n = show n ++ "o 'clock and " ++ message n
         where message 7 = "... SHARKNADO!"
               message _ = "all's well."
+
+watch4 :: Int -> [Char]
+watch4 n = show n ++ " o'clock and " ++ case n of 7 -> "... SHARKNADO!"
+                                        _ -> "all's well!"
