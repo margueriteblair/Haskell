@@ -38,3 +38,8 @@ noVowels2 "" = ""
 noVowels2 (x:xs)
     | x `elem` "aeiouAEIOU" = noVowels2 xs
     | otherwise = x : noVowels2 xs
+
+watch :: Int -> [Char]
+watch n = if n == 7
+    then "7 o'clock and ... SHARKNADO!"
+    else show n ++ " o'clock and all's well."
