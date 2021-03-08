@@ -4,5 +4,4 @@ main = do
 
 oceanFront :: [Int] -> [Int]
 oceanFront xs =
-    let big = 3
-    [x | x <- xs, x >= big]
+    [x | x <- xs, x >= 3]
