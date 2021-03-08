@@ -38,6 +38,7 @@ value player board
 
 
 --Returns, from a list of boards where X has just moved, the one with the max value
+--This will actually let us know the best move
 bestOf :: [[[Char]]] -> [[Char]]
 bestOf [x] = x
 bestOf (x:xs)
