@@ -2,6 +2,8 @@ emptyBoard = ["...", "...", "..."]
 
 --Returns the winner
 winner :: [[Char]] -> Char
+--Each letter represents a space on the board
+--Each gaurd line checks for a winning combination
 winner [[a,b,c], [d,e,f], [g,h,i]]
     | a == b && b == c && a /= '.'   = a
     | d == e && e == f && d /= '.'   = d
@@ -23,6 +25,8 @@ play :: Int -> Int -> Char -> [[Char]] -> [[Char]]
 play r c a board = replace r (replace c a (board !! r)) board
 
 --Returns the value of the board with the player to play
+--Minamax tree search
+--The recursive cases use list comprehensions
 value :: Char -> [[Char]] -> Int
 value player board
     | w == 'X'      = 1
