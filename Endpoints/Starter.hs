@@ -18,6 +18,7 @@ PlutusTx.makeLift ''MyRedeemer
 
 -- | This method is the spending validator (which gets lifted to
 --   its on-chain representation).
+-- Validation script always takes: a datum, a redeemer, and a validation context
 validateSpend :: MyDatum -> MyRedeemer -> ValidatorCtx -> Bool
 validateSpend _myDataValue _myRedeemerValue _ = error () -- Please provide an implementation.
 
@@ -49,6 +50,9 @@ contract :: AsContractError e => Contract Schema e ()
 contract = publish `select` redeem
 
 -- | The "publish" contract endpoint.
+-- Wallet a will publish an amount of $ADA along with a keyword/number that will need to be guessed
+-- by the receiving end wallet
+--In this program, our validator script is what is actually going to be locking the $ADA
 publish :: AsContractError e => Contract Schema e ()
 publish = do
     (i, lockedFunds) <- endpoint @"publish"
