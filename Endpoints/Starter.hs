@@ -8,6 +8,9 @@ import qualified Ledger.Typed.Scripts      as Scripts
 import           Ledger.Value              (Value)
 import           Playground.Contract
 
+-- Plutus Core is the programming language in which scripts in the Cardano blockchain are written
+-- PlutusTx is the libraries and compiler for compiling Haskell into Plutus core
+
 --This contract in Plutus once compiled, will simulate the same wallet txs as "Hello, World"
 --But this time, also allows each wallet the ability of two more functions: publish and redeem
 newtype MyDatum = MyDatum Integer deriving newtype PlutusTx.IsData
@@ -19,6 +22,8 @@ PlutusTx.makeLift ''MyRedeemer
 -- | This method is the spending validator (which gets lifted to
 --   its on-chain representation).
 -- Validation script always takes: a datum, a redeemer, and a validation context
+-- Validation context is information about the context
+-- "validateSpend" here is our validation context for the overall program
 validateSpend :: MyDatum -> MyRedeemer -> ValidatorCtx -> Bool
 validateSpend _myDataValue _myRedeemerValue _ = error () -- Please provide an implementation.
 
