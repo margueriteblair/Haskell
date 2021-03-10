@@ -8,6 +8,8 @@ import qualified Ledger.Typed.Scripts      as Scripts
 import           Ledger.Value              (Value)
 import           Playground.Contract
 
+--This contract in Plutus once compiled, will simulate the same wallet txs as "Hello, World"
+--But this time, also allows each wallet the ability of two more functions: publish and redeem
 newtype MyDatum = MyDatum Integer deriving newtype PlutusTx.IsData
 PlutusTx.makeLift ''MyDatum
 
@@ -38,7 +40,9 @@ starterInstance = Scripts.validator @Starter
 -- | The schema of the contract, with two endpoints.
 type Schema =
     BlockchainActions
+    --We can see here that publish takes in a tuple of Integer, Value
         .\/ Endpoint "publish" (Integer, Value)
+        --Redeem just takes an integer
         .\/ Endpoint "redeem" Integer
 
 contract :: AsContractError e => Contract Schema e ()
