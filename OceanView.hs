@@ -1,13 +1,12 @@
 main :: IO ()
 main = do
     -- print (oceanFront [4,3,2,3,1] [])
-    print (oceanFront [1, 3, 7, 3, 4])
+    print (oceanFront [1, 3, 7, 3, 4] 0)
 
 
-oceanFront :: [Int] -> [Int]
-oceanFront [] = []
-oceanFront [x] = [x]
-oceanFront (x:y:xs) = [1]
+oceanFront :: [Int] -> Int -> [Int]
+oceanFront [] _ = []
+oceanFront (x:xs) y = [1]
 
 -- maximum :: [Int] -> Int
 -- maximum [x] = x
