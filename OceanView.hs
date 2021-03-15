@@ -1,6 +1,6 @@
 main :: IO ()
 main = do
-    -- print (oceanFront [4,3,2,3,1] [])
+    print (oceanView [4,3,2,3,1] 0)
     print (oceanView [1, 3, 7, 3, 4] 0)
 
 
