@@ -25,10 +25,17 @@ firstThat f = foldr (\x acc -> if f x then x else acc)
 lastThat :: (a -> Bool) -> a -> [a] -> a
 lastThat f = foldl (\acc x -> if f x then x else acc)
 
+
+--foldl1 and foldr1 doesn't need the starter value
+-- $ and . operators allow us to refactor functions
+
 argmax :: (Ord b) => (a -> b) -> [a] -> a
 argmax f[x] = x
 argmax f (x:xs) = if f x > f (argmax f xs)
                   then x
                   else (argmax f xs)
+
+argmax2 :: (Ord b) => (a -> b) -> [a] -> a
+argmax2 f = foldl1 (\acc x -> if f x > f acc then x else acc)
 
 
