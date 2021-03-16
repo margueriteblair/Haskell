@@ -7,5 +7,8 @@
 -- :m + Data.List
 -- find (>3) [1..6] maybe it returns a value
 -- In an actual file as opposed to ghci, we can import our modules up at the top like so:
+
 import Data.List
 import Data.Maybe
+
+--Haskell website has a lot of content
