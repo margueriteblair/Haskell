@@ -3,7 +3,8 @@ import Data.List ()
 
 {- Rank is an instance of 'Eq' meaning that we can check two
 ranks for equality.
-
+Rank is also an instance of 'Ord' which means that we can computer the values of these things
+Bounded means that we have minimum and maximum values
 -}
 data Rank = Ace | Two | Three | Four | Five | Six | Seven
             | Eight | Nine | Ten | Jack | Queen | King
