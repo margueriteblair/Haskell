@@ -47,3 +47,13 @@ twoPair = setCount 3 2
 threeOfAKind = setCount 3 3
 
 straight = allPairs (\(Card r1 _) (Card r2 _) -> r1 == pred r2)
+
+flush = allPairs (\(Card _ s1) (Card _ s2) -> s1 == s2)
+
+fullHouse = setCount 2 3
+
+fourOfAKing = setCount 2 4
+
+straightFlush hand = straight hand && flush hand
+
+
