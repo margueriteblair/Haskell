@@ -12,7 +12,7 @@ data Rank = Ace | Two | Three | Four | Five | Six | Seven
 data Suit = Spades | Hearts | Diamonds | Clubs
             deriving (Eq, Enum, Show, Read)
 
-data Card = Card Rank Suit derving (Eq, Show, Read)
+data Card = Card Rank Suit deriving (Eq, Show, Read)
 
 type Hand = [Card]
 
