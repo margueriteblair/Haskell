@@ -1,4 +1,4 @@
-import Data.List ()
+import Data.List
 
 
 {- Rank is an instance of 'Eq' meaning that we can check two
@@ -31,6 +31,11 @@ allPairs f [] = True
 allPairs f [x] = True
 allPairs f (x:y:ys) = f x y && allPairs f (y:ys)
 
+
+--groupBy is within the Data.List module
+--groupBy takes an equality function and a list
+--setCount incorporates a Lambda expression
+--Pattern matching only works on constructors
 setCount n k hand = let sets = groupBy (\(Card r1 _) (Card r2 _) -> r1 == r2) hand
                     in (length sets == n) && (maximum (map length sets) == k)
                 
@@ -40,3 +45,5 @@ pair = setCount 4 2
 twoPair = setCount 3 2
 
 threeOfAKind = setCount 3 3
+
+straight = allPairs (\(Card r1 _) (Card r2 _) -> r1 == pred r2)
