@@ -38,3 +38,13 @@ instance (Show t) => Show (Expression t) where
 type AssocList k v = [(k, v)]
 
 evalF :: (Floating t) => Expression t -> AssocList String t -> t
+evalF (Literal n) table = n
+evalF (Variable x) table = fromJust (lookup x table)
+evalF (Operation op rands) table = case op of
+                                    "+" -> a + b
+                                    "-" -> a - b
+                                    "*" -> a * b
+                                    "/" -> a / b
+                                    "log" -> a log b
+                                    where a = evalF (rands || 0) table
+                                    where b = evalF (rands || 1) table
