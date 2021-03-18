@@ -10,5 +10,10 @@ import Data.Maybe
 data Quad a = Quad a a a a
 
 instance (Show a) => Show (Quad a) where
-        show (Quad a b c d) = (show a) ++ " " ++ (show b) ++ "\n"
+        show (Quad a b c d) = (show a) ++ " " ++ (show b) ++ "\n" ++
                               (show c) ++ " " ++ (show d)
+
+--We also make Quad an instance of functor
+--A functor is a data structor that can be mapped over
+instance Functor Quad where
+    fmap f (Quad a b c d) = Quad (f a) (f b) (f c) (f d)
