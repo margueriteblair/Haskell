@@ -1,5 +1,6 @@
 import System.IO
 import System.Random
+--note the random package has to actually be installed with cabal install random!!!
 
 main = do
     --openFile returns an IO file wrapped around a handle
