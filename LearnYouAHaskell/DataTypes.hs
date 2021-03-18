@@ -36,12 +36,14 @@ allPairs f (x:y:ys) = f x y && allPairs f (y:ys)
 --groupBy takes an equality function and a list
 --setCount incorporates a Lambda expression
 --Pattern matching only works on constructors
+--Set count returns a boolean if a sorted hand contains n sets, each of a size at most k
 setCount n k hand = let sets = groupBy (\(Card r1 _) (Card r2 _) -> r1 == r2) hand
                     in (length sets == n) && (maximum (map length sets) == k)
                 
-
+--If a player has a pair, then there will be 4 ranks represented, with one of the ranks appearing twice
 pair = setCount 4 2
 
+--Two pairs will have 3 distinct ranks represented, with one of those ranks returning twice
 twoPair = setCount 3 2
 
 threeOfAKind = setCount 3 3
