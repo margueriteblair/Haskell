@@ -27,3 +27,8 @@ instance Floppable (Quad a) where
 
 instance Floppable [a] where
     flop = reverse
+
+data Expression t = Literal t | Variable String | Operation String [Expression t]
+
+instance (Show t) => Show (Expression t) where
+    show (Literal n) = show n
