@@ -32,3 +32,9 @@ data Expression t = Literal t | Variable String | Operation String [Expression t
 
 instance (Show t) => Show (Expression t) where
     show (Literal n) = show n
+    show (Variable x) = x
+    show (Operation op rands) = "(" ++ (concat (intersperse " " (op : (map show rands)))) ++ ")"
+
+type AssocList k v = [(k, v)]
+
+evalF :: (Floating t) => Expression t -> AssocList String t -> t
