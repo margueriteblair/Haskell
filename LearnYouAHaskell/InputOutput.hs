@@ -15,3 +15,5 @@ main = do
     hClose handle
     -- putStrLn ("There are " ++ show (length (lines contents)) ++ " words")
     -- hClose handle
+play word = do
+    putStrLn ("The word is " ++ word ++ ".")
