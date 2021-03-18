@@ -17,3 +17,13 @@ instance (Show a) => Show (Quad a) where
 --A functor is a data structor that can be mapped over
 instance Functor Quad where
     fmap f (Quad a b c d) = Quad (f a) (f b) (f c) (f d)
+
+
+class Floppable a where
+    flop :: a -> a
+
+instance Floppable (Quad a) where
+    flop (Quad a b c d) = Quad a c b d
+
+instance Floppable [a] where
+    flop = reverse
