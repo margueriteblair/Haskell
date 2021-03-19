@@ -25,7 +25,7 @@ apply Mul x y = x * y
 apply Div x y = x `div` y
 
 --Now we're making Numeric expressions
-
+--Data type for representing numeric expressions
 data Expr = Val Int | App Op Expr Expr
 
 instance Show Expr where
@@ -35,6 +35,7 @@ instance Show Expr where
                             brak (Val n) = show n
                             brak e = "(" ++ show e ++ ")"
 
+--this one takes an expression as input and will then pull all of the values out of it
 values :: Expr -> [Int]
 values (Val n) = [n]
 values (App _ l r) = values l ++ values r
