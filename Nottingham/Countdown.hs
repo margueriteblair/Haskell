@@ -4,6 +4,7 @@ import Numeric --numeric library
 
 --Arithmetic operators
 
+--Creating a datatype called Op
 data Op = Add | Sub | Mul | Div
 
 instance Show Op where
