@@ -43,5 +43,5 @@ values (App _ l r) = values l ++ values r
 eval :: Expr -> [Int]
 eval (Val n) = [n | n > 0]
 eval (App o l r) = [apply o x y | x <- eval l,
-                                  y < eval r,
+                                  y <- eval r,
                                   valid o x y ]
