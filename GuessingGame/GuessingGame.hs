@@ -13,6 +13,7 @@ import           Wallet.Emulator.Wallet    (Wallet, walletPubKey)
 randomNum :: Integer
 randomNum = toInteger $ fromEnum $ C.last $ C.pack $ show $ walletPubKey $ Wallet 1
 
+--We're just manually setting magicNum equal to 123, it's not actually random
 magicNum :: Integer
 magicNum = 123
 
