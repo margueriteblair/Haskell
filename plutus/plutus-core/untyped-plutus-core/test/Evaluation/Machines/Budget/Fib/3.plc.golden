@@ -1,0 +1,41 @@
+( (Right (2))
+, ({ tally: ({ BConst causes ({ cpu: 15
+| mem: 0
+})
+| BVar causes ({ cpu: 59
+| mem: 0
+})
+| BLamAbs causes ({ cpu: 46
+| mem: 0
+})
+| BApply causes ({ cpu: 86
+| mem: 0
+})
+| BDelay causes ({ cpu: 13
+| mem: 0
+})
+| BForce causes ({ cpu: 18
+| mem: 0
+})
+| BBuiltin causes ({ cpu: 16
+| mem: 0
+})
+| BBuiltinApp AddInteger causes ({ cpu: 42370
+| mem: 40000
+})
+| BBuiltinApp SubtractInteger causes ({ cpu: 86628
+| mem: 1800000
+})
+| BBuiltinApp LessThanEqInteger causes ({ cpu: 105015
+| mem: 50000
+})
+| BBuiltinApp IfThenElse causes ({ cpu: 50000
+| mem: 50000
+})
+| BAST causes ({ cpu: 0
+| mem: 44
+})})
+| budget: ({ cpu: 284266
+| mem: 1940044
+})
+}) )

@@ -1,0 +1,478 @@
+cabal-version: 2.4
+name: plutus-core
+version: 0.1.0.0
+license: Apache-2.0
+license-files:
+  LICENSE
+  NOTICE
+maintainer: vanessa.mchale@iohk.io
+author: Vanessa McHale
+tested-with: ghc ==8.2.2 ghc ==8.4.3 ghc ==8.6.1
+synopsis: Language library for Plutus Core
+description:
+    Pretty-printer, parser, and typechecker for Plutus Core.
+category: Language, Plutus
+build-type: Simple
+extra-doc-files: README.md
+extra-source-files:
+    cost-model/data/costModel.json
+    cost-model/data/benching.csv
+    cost-model/data/*.R
+
+source-repository head
+    type: git
+    location: https://github.com/input-output-hk/plutus
+
+common lang
+    default-language: Haskell2010
+    default-extensions: ExplicitForAll FlexibleContexts ScopedTypeVariables
+                        DeriveGeneric StandaloneDeriving DeriveLift
+                        GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable
+                        DeriveTraversable DerivingStrategies DerivingVia
+    ghc-options: -Wall -Wnoncanonical-monad-instances
+                 -Wincomplete-uni-patterns -Wincomplete-record-updates
+                 -Wredundant-constraints -Widentities
+                 -Wnoncanonical-monoid-instances
+                 -Wunused-packages
+
+library
+    import: lang
+    exposed-modules:
+        PlutusCore
+        PlutusCore.Quote
+        PlutusCore.MkPlc
+        PlutusCore.Evaluation.Machine.Ck
+        PlutusCore.Evaluation.Machine.ExBudget
+        PlutusCore.Evaluation.Machine.ExBudgeting
+        PlutusCore.Evaluation.Machine.ExBudgetingDefaults
+        PlutusCore.Evaluation.Machine.Exception
+        PlutusCore.Evaluation.Machine.ExMemory
+        PlutusCore.Evaluation.Result
+        PlutusCore.Check.Value
+        PlutusCore.Check.Normal
+        PlutusCore.CBOR
+        PlutusCore.Flat
+        PlutusCore.Constant
+        PlutusCore.Constant.Dynamic.Emit
+        PlutusCore.Universe
+        PlutusCore.Builtins
+        PlutusCore.Rename.Internal
+        PlutusCore.Rename.Monad
+        PlutusCore.Rename
+        PlutusCore.Normalize
+        PlutusCore.Normalize.Internal
+        PlutusCore.Pretty
+        PlutusCore.Subst
+        PlutusCore.Name
+        PlutusCore.Core
+        PlutusCore.DeBruijn
+        PlutusCore.Check.Uniques
+        PlutusCore.FsTree
+        PlutusCore.StdLib.Data.Bool
+        PlutusCore.StdLib.Data.ChurchNat
+        PlutusCore.StdLib.Data.Function
+        PlutusCore.StdLib.Data.Integer
+        PlutusCore.StdLib.Data.List
+        PlutusCore.StdLib.Data.Nat
+        PlutusCore.StdLib.Data.Sum
+        PlutusCore.StdLib.Data.Unit
+        PlutusCore.StdLib.Data.ScottUnit
+        PlutusCore.StdLib.Everything
+        PlutusCore.StdLib.Meta
+        PlutusCore.StdLib.Meta.Data.Tuple
+        PlutusCore.StdLib.Meta.Data.Function
+        PlutusCore.StdLib.Type
+        PlutusCore.Examples.Builtins
+        PlutusCore.Examples.Everything
+        PlutusCore.Generators
+        PlutusCore.Generators.AST
+        PlutusCore.Generators.Interesting
+        PlutusCore.Generators.Test
+        PlutusCore.Generators.NEAT.Common
+        PlutusCore.Generators.NEAT.Spec
+        PlutusCore.Generators.NEAT.Type
+        PlutusCore.Generators.NEAT.Term
+        PlutusCore.Lexer
+        PlutusCore.Parser
+        PlutusCore.Error
+
+        PlutusIR
+        PlutusIR.Compiler
+        PlutusIR.Compiler.Names
+        PlutusIR.Compiler.Definitions
+        PlutusIR.Error
+        PlutusIR.Generators.AST
+        PlutusIR.Parser
+        PlutusIR.MkPir
+        PlutusIR.Purity
+        PlutusIR.Optimizer.DeadCode
+        PlutusIR.Transform.Substitute
+        PlutusIR.Transform.ThunkRecursions
+        PlutusIR.Transform.Rename
+        PlutusIR.Transform.NonStrict
+        PlutusIR.Transform.LetFloat
+        PlutusIR.Transform.Inline
+        PlutusIR.TypeCheck
+
+        UntypedPlutusCore
+        UntypedPlutusCore.DeBruijn
+        UntypedPlutusCore.Evaluation.HOAS
+        UntypedPlutusCore.Evaluation.Machine.Cek
+        UntypedPlutusCore.Parser
+        UntypedPlutusCore.Rename
+
+        PlutusPrelude
+        Common
+        ErrorCode
+        Data.ByteString.Hash
+        PlcTestUtils
+        Crypto
+        Data.Text.Prettyprint.Doc.Custom
+    build-tool-depends: alex:alex -any, happy:happy >=1.17.1
+    hs-source-dirs:
+        plutus-core/src
+        plutus-core/stdlib
+        plutus-core/examples
+        plutus-ir/src
+        untyped-plutus-core/src
+        generators
+        prelude
+        common
+    other-modules:
+        PlutusCore.Analysis.Definitions
+        PlutusCore.Constant.Apply
+        PlutusCore.Constant.Function
+        PlutusCore.Constant.Meaning
+        PlutusCore.Constant.Typed
+        PlutusCore.Core.Instance
+        PlutusCore.Core.Instance.Eq
+        PlutusCore.Core.Instance.Pretty
+        PlutusCore.Core.Instance.Pretty.Classic
+        PlutusCore.Core.Instance.Pretty.Common
+        PlutusCore.Core.Instance.Pretty.Default
+        PlutusCore.Core.Instance.Pretty.Plc
+        PlutusCore.Core.Instance.Pretty.Readable
+        PlutusCore.Core.Instance.Recursive
+        PlutusCore.Core.Plated
+        PlutusCore.Core.Type
+        PlutusCore.DeBruijn.Internal
+        PlutusCore.Eq
+        PlutusCore.Examples.Data.InterList
+        PlutusCore.Examples.Data.Shad
+        PlutusCore.Examples.Data.TreeForest
+        PlutusCore.Examples.Data.Vec
+        PlutusCore.Generators.Internal.Denotation
+        PlutusCore.Generators.Internal.Dependent
+        PlutusCore.Generators.Internal.Entity
+        PlutusCore.Generators.Internal.TypeEvalCheck
+        PlutusCore.Generators.Internal.TypedBuiltinGen
+        PlutusCore.Generators.Internal.Utils
+        PlutusCore.Lexer.Type
+        PlutusCore.Mark
+        PlutusCore.Parsable
+        PlutusCore.Parser.Internal
+        PlutusCore.Pretty.Classic
+        PlutusCore.Pretty.ConfigName
+        PlutusCore.Pretty.ConfigName
+        PlutusCore.Pretty.Default
+        PlutusCore.Pretty.Plc
+        PlutusCore.Pretty.PrettyConst
+        PlutusCore.Pretty.Readable
+        PlutusCore.Pretty.Utils
+        PlutusCore.Size
+        PlutusCore.TypeCheck
+        PlutusCore.TypeCheck.Internal
+        PlutusCore.Universe.Core
+        PlutusCore.Universe.Default
+
+        PlutusIR.Analysis.Dependencies
+        PlutusIR.Analysis.Usages
+        PlutusIR.Compiler.Datatype
+        PlutusIR.Compiler.Error
+        PlutusIR.Compiler.Let
+        PlutusIR.Compiler.Lower
+        PlutusIR.Compiler.Provenance
+        PlutusIR.Compiler.Recursion
+        PlutusIR.Compiler.Types
+        PlutusIR.Normalize
+        PlutusIR.TypeCheck.Internal
+
+        UntypedPlutusCore.Analysis.Definitions
+        UntypedPlutusCore.Check.Uniques
+        UntypedPlutusCore.Core
+        UntypedPlutusCore.Core.Instance
+        UntypedPlutusCore.Core.Instance.CBOR
+        UntypedPlutusCore.Core.Instance.Eq
+        UntypedPlutusCore.Core.Instance.Flat
+        UntypedPlutusCore.Core.Instance.Pretty
+        UntypedPlutusCore.Core.Instance.Pretty.Classic
+        UntypedPlutusCore.Core.Instance.Pretty.Default
+        UntypedPlutusCore.Core.Instance.Pretty.Plc
+        UntypedPlutusCore.Core.Instance.Pretty.Readable
+        UntypedPlutusCore.Core.Instance.Recursive
+        UntypedPlutusCore.Core.Plated
+        UntypedPlutusCore.Core.Type
+        UntypedPlutusCore.Evaluation.Machine.Cek.ExBudgetMode
+        UntypedPlutusCore.Evaluation.Machine.Cek.Internal
+        UntypedPlutusCore.Mark
+        UntypedPlutusCore.Rename.Internal
+        UntypedPlutusCore.Size
+        UntypedPlutusCore.Subst
+        UntypedPlutusCore.Transform.Simplify
+
+        Data.Aeson.THReader
+        Data.Functor.Foldable.Monadic
+    build-depends:
+        Stream -any,
+        aeson -any,
+        algebraic-graphs >= 0.3,
+        array -any,
+        barbies -any,
+        base >=4.9 && <5,
+        bifunctors -any,
+        bimap -any,
+        bytestring -any,
+        cardano-crypto,
+        cborg -any,
+        composition-prelude >=1.1.0.1,
+        containers -any,
+        cryptonite -any,
+        data-default-class -any,
+        deepseq -any,
+        dependent-map -any,
+        dependent-sum <0.7,
+        dependent-sum-template -any,
+        deriving-aeson >= 0.2.3,
+        deriving-compat -any,
+        dlist -any,
+        filepath -any,
+        flat -any,
+        ghc-prim -any,
+        hashable,
+        hedgehog >=1.0,
+        integer-gmp -any,
+        lazy-search -any,
+        lens -any,
+        megaparsec -any,
+        memory -any,
+        mmorph -any,
+        monoidal-containers,
+        mtl -any,
+        nonempty-containers -any,
+        parser-combinators >= 0.4.0,
+        prettyprinter >=1.1.0.1,
+        prettyprinter-configurable -any,
+        recursion-schemes -any,
+        semigroupoids -any,
+        semigroups -any,
+        serialise -any,
+        size-based -any,
+        tasty -any,
+        tasty-golden -any,
+        tasty-hunit -any,
+        template-haskell -any,
+        text -any,
+        th-lift -any,
+        th-lift-instances -any,
+        th-utilities -any,
+        transformers -any,
+        witherable -any
+
+test-suite plutus-core-test
+    import: lang
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    hs-source-dirs: plutus-core/test
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    other-modules:
+        Evaluation.ApplyBuiltinName
+        Evaluation.DynamicBuiltins.Common
+        Evaluation.DynamicBuiltins.Definition
+        Evaluation.DynamicBuiltins.MakeRead
+        Evaluation.DynamicBuiltins
+        Evaluation.Machines
+        Evaluation.Spec
+        Normalization.Check
+        Normalization.Type
+        Pretty.Readable
+        Check.Spec
+        TypeSynthesis.Spec
+    default-language: Haskell2010
+    build-depends:
+        base -any,
+        bytestring -any,
+        filepath -any,
+        flat -any,
+        hedgehog -any,
+        plutus-core -any,
+        mmorph -any,
+        mtl -any,
+        prettyprinter -any,
+        serialise -any,
+        tasty -any,
+        tasty-golden -any,
+        tasty-hedgehog -any,
+        tasty-hunit -any,
+        text -any,
+        transformers -any
+
+test-suite plutus-ir-test
+    import: lang
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    hs-source-dirs: plutus-ir/test
+    other-modules:
+        OptimizerSpec
+        TransformSpec
+        ParserSpec
+        TypeSpec
+        TestLib
+    build-depends:
+        base >=4.9 && <5,
+        plutus-core -any,
+        filepath -any,
+        flat -any,
+        hedgehog -any,
+        lens -any,
+        megaparsec -any,
+        mmorph -any,
+        mtl -any,
+        prettyprinter -any,
+        tasty -any,
+        tasty-hedgehog -any,
+        text -any
+
+test-suite untyped-plutus-core-test
+    import: lang
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    hs-source-dirs: untyped-plutus-core/test
+    other-modules:
+        Evaluation.ApplyBuiltinName
+        Evaluation.Golden
+        Evaluation.Machines
+        Transform.Simplify
+    build-depends:
+        plutus-core -any,
+        base >=4.9 && <5,
+        bytestring -any,
+        hedgehog -any,
+        mtl -any,
+        prettyprinter -any,
+        tasty -any,
+        tasty-golden -any,
+        tasty-hedgehog -any,
+        text -any
+
+executable plc
+    import: lang
+    main-is: Main.hs
+    hs-source-dirs: plc
+    build-depends:
+        plutus-core -any,
+        base <5,
+        bytestring -any,
+        deepseq -any,
+        flat -any,
+        monoidal-containers -any,
+        optparse-applicative -any,
+        prettyprinter -any,
+        serialise -any,
+        split -any,
+        text -any,
+        transformers -any
+
+-- This runs the microbenchmarks used to generate the cost models for built-in functions,
+-- saving the results in cost-model/data/benching.csv.  It will take several hours.
+benchmark cost-model-budgeting-bench
+    import: lang
+    type: exitcode-stdio-1.0
+    main-is: Bench.hs
+    hs-source-dirs: cost-model/budgeting-bench
+    default-language: Haskell2010
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates -Wredundant-constraints -Widentities
+    build-depends:
+        plutus-core -any,
+        base -any,
+        bytestring -any,
+        criterion -any,
+        directory -any,
+        filepath -any,
+        hedgehog -any,
+        random -any
+
+
+-- This reads the CSV data generated by cost-model-budgeting-bench, builds the models
+-- using R, and saces them in cost-model/data/costModel.json
+-- Benchmark sets the correct PWD and doesn't get run by `stack test`
+benchmark update-cost-model
+    type: exitcode-stdio-1.0
+    main-is: UpdateCostModel.hs
+    -- cost-model-creation should be its own library, but stack + HIE really don't like sub-libraries.
+    hs-source-dirs: cost-model/create-cost-model
+    default-language: Haskell2010
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates -Wredundant-constraints -Widentities
+    build-depends:
+        plutus-core -any,
+        aeson -any,
+        aeson-pretty -any,
+        barbies -any,
+        base -any,
+        bytestring -any,
+        cassava -any,
+        containers -any,
+        data-default -any,
+        deepseq -any,
+        deriving-aeson >= 0.2.3,
+        directory -any,
+        exceptions -any,
+        extra -any,
+        hedgehog -any,
+        inline-r -any,
+        lens -any,
+        serialise -any,
+        text -any,
+        vector -any
+    other-modules:
+        CostModelCreation
+
+-- The cost models for builtins are generated using R and converted into a JSON
+-- form that can later be used to construct Haskell functions.  This tests
+-- that the predictions of the Haskell version are identical to the R ones.
+-- This test is problematic in CI: pretending that it's a benchmark will prevent
+-- it from being run automatically but will still allow us to run it manually.
+benchmark cost-model-test
+    type: exitcode-stdio-1.0
+    main-is: TestCostModels.hs
+    hs-source-dirs: cost-model/test, cost-model/create-cost-model
+    default-language: Haskell2010
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wincomplete-uni-patterns
+                 -Wincomplete-record-updates -Wredundant-constraints -Widentities
+    build-depends:
+        base -any,
+        plutus-core -any,
+        aeson -any,
+        barbies -any,
+        bytestring -any,
+        bytestring -any,
+        cassava -any,
+        containers -any,
+        containers -any,
+        data-default -any,
+        deepseq -any,
+        deriving-aeson >= 0.2.3,
+        directory -any,
+        exceptions -any,
+        extra -any,
+        hedgehog -any,
+        hedgehog -any,
+        inline-r -any,
+        lens -any,
+        mmorph -any,
+        serialise -any,
+        text -any,
+        vector -any
+    other-modules:
+        CostModelCreation
