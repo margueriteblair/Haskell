@@ -13,3 +13,11 @@ data Person2 = Person2 {
     phoneNumber :: String,
     flavor :: String
 } deriving (Show)
+
+data Car = Car String String Int deriving (Show)
+
+data Car2 = Car2 {
+    company :: String,
+    model :: String,
+    year :: Int
+} deriving (Show)
