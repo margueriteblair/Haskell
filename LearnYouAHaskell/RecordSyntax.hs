@@ -21,3 +21,5 @@ data Car2 = Car2 {
     model :: String,
     year :: Int
 } deriving (Show)
+
+data Vector = Vector Int Int Int
