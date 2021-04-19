@@ -41,7 +41,11 @@ instance Scripts.ScriptType Typed where
 -- Implement the instance!
 
 inst :: Scripts.ScriptInstance Typed
-inst = undefined -- FIX ME!
+inst = Scripts.validator @Typed
+    $$(PlutusTx.compile [|| mkValidator ||])
+    $$(PlutusTx.compile [|| wrap ||])
+  where
+    wrap = Scripts.wrapValidator @() @(Bool, Bool)
 
 validator :: Validator
 validator = undefined -- FIX ME!
