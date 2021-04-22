@@ -31,10 +31,10 @@ import           Playground.Types     (KnownCurrency (..))
 import           Prelude              (Semigroup (..))
 import           Text.Printf          (printf)
 
-data VestingDatum = VestingDatum
-    { beneficiary :: PubKeyHash
-    , deadline    :: Slot
-    } deriving Show
+data VestingDatum = VestingDatum {
+    beneficiary :: PubKeyHash,
+    deadline :: Slot
+}
 
 PlutusTx.unstableMakeIsData ''VestingDatum
 
