@@ -39,7 +39,9 @@ data VestingDatum = VestingDatum {
 PlutusTx.unstableMakeIsData ''VestingDatum
 
 {-# INLINABLE mkValidator #-}
+--The reedeemer here is just unit
 mkValidator :: VestingDatum -> () -> ScriptContext -> Bool
+--we need to check 2 conditions: beneficiary is correct, and that the date is correct
 mkValidator dat () ctx =
     traceIfFalse "beneficiary's signature missing" checkSig      &&
     traceIfFalse "deadline not reached"            checkDeadline
