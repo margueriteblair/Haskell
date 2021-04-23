@@ -77,7 +77,7 @@ validator = Scripts.validatorScript inst
 scrAddress :: Ledger.Address
 scrAddress = scriptAddress validator
 
-data GiveParams = GiveParams
+data GiveParams = GiveParams --type
     { gpBeneficiary :: !PubKeyHash
     , gpDeadline    :: !Slot
     , gpAmount      :: !Integer
