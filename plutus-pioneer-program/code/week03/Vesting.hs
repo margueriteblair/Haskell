@@ -42,13 +42,14 @@ PlutusTx.unstableMakeIsData ''VestingDatum
 --The reedeemer here is just unit
 mkValidator :: VestingDatum -> () -> ScriptContext -> Bool
 --we need to check 2 conditions: beneficiary is correct, and that the date is correct
+--Check sig and checkDeadline are helper functions
 mkValidator dat () ctx =
     traceIfFalse "beneficiary's signature missing" checkSig      &&
     traceIfFalse "deadline not reached"            checkDeadline
   where
     info :: TxInfo
     info = scriptContextTxInfo ctx
-
+    --just making our helper functions in checkSig and checkDeadline
     checkSig :: Bool
     checkSig = beneficiary dat `elem` txInfoSignatories info
 
