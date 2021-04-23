@@ -59,17 +59,17 @@ mkValidator dat () ctx =
     --txInfoValidRange field must be the range of slots, we need to see the if deadline has been reached
     checkDeadline = from (deadline dat) `contains` txInfoValidRange info
 
-data Vesting
+data Vesting --This is what we're calling our script
 instance Scripts.ScriptType Vesting where
-    type instance DatumType Vesting = VestingDatum
-    type instance RedeemerType Vesting = ()
+    type instance DatumType Vesting = VestingDatum --datum type
+    type instance RedeemerType Vesting = () --redeemer type
 
 inst :: Scripts.ScriptInstance Vesting
 inst = Scripts.validator @Vesting
     $$(PlutusTx.compile [|| mkValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
   where
-    wrap = Scripts.wrapValidator @VestingDatum @()
+    wrap = Scripts.wrapValidator @VestingDatum @() --our datum and redeemer again
 
 validator :: Validator
 validator = Scripts.validatorScript inst
