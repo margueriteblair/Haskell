@@ -50,10 +50,13 @@ mkValidator dat () ctx =
     info :: TxInfo
     info = scriptContextTxInfo ctx
     --just making our helper functions in checkSig and checkDeadline
+    --Remember! "elem" function checks for membership in a list, we need to make sure public key of beneficiary
     checkSig :: Bool
+    --txInfoSignatories is the list of publickeys, now we need to find a match
     checkSig = beneficiary dat `elem` txInfoSignatories info
-
+    --Both of return type Boolean
     checkDeadline :: Bool
+    --txInfoValidRange field must be the range of slots, we need to see the if deadline has been reached
     checkDeadline = from (deadline dat) `contains` txInfoValidRange info
 
 data Vesting
