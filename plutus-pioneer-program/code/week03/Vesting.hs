@@ -40,6 +40,7 @@ PlutusTx.unstableMakeIsData ''VestingDatum
 
 {-# INLINABLE mkValidator #-}
 --The reedeemer here is just unit
+--Wallet is its own data type
 mkValidator :: VestingDatum -> () -> ScriptContext -> Bool
 --we need to check 2 conditions: beneficiary is correct, and that the date is correct
 --Check sig and checkDeadline are helper functions
