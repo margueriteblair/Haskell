@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
-
+--Write the correct logic here
 module Week03.Homework1 where
 
 import           Control.Monad        hiding (fmap)
