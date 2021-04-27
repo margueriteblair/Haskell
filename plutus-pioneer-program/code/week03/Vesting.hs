@@ -143,4 +143,5 @@ mkKnownCurrencies []
 {- 
 the UTXO can be denied,
 the context gets used here
+getPubKeyHash
 -}
