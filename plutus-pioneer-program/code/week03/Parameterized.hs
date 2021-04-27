@@ -13,6 +13,9 @@
 
 {-
 We parameterize the script
+We need the GHC param MultiParamTypeClasses
+The beneficiary will be the wallet itself
+Slot argument
 -}
 
 module Week03.Parameterized where
