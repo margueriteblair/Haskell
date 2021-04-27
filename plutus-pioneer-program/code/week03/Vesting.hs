@@ -139,3 +139,8 @@ endpoints = (give' `select` grab') >> endpoints
 mkSchemaDefinitions ''VestingSchema --binding the schmema as vesting schema
 
 mkKnownCurrencies []
+
+{- 
+the UTXO can be denied,
+the context gets used here
+-}
