@@ -120,7 +120,7 @@ grab = do
             void $ awaitTxConfirmed $ txId ledgerTx
             logInfo @String $ "collected gifts"
   where
-    isSuitable :: PubKeyHash -> Slot -> TxOutTx -> Bool
+    isSuitable :: PubKeyHash -> Slot -> TxOutTx -> Bool --the deadline is defined as a slot number
     isSuitable pkh now o = case txOutDatumHash $ txOutTxOut o of
         Nothing -> False
         Just h  -> case Map.lookup h $ txData $ txOutTxTx o of
@@ -135,6 +135,6 @@ endpoints = (give' `select` grab') >> endpoints
     give' = endpoint @"give" >>= give
     grab' = endpoint @"grab" >>  grab
 
-mkSchemaDefinitions ''VestingSchema
+mkSchemaDefinitions ''VestingSchema --binding the schmema as vesting schema
 
 mkKnownCurrencies []
