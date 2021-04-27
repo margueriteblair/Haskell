@@ -16,6 +16,8 @@ We parameterize the script
 We need the GHC param MultiParamTypeClasses
 The beneficiary will be the wallet itself
 Slot argument
+Same give and grab scenario, we need the additional parameter. The wallets need to know the deadline
+
 -}
 
 module Week03.Parameterized where
