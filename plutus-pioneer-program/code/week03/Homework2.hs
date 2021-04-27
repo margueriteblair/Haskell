@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
-
+--Vesting, do another parameterized version where we split parameterized version
 module Week03.Homework2 where
 
 import           Control.Monad        hiding (fmap)
