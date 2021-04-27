@@ -11,7 +11,12 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 
+{-
+We parameterize the script
+-}
+
 module Week03.Parameterized where
+
 
 import           Control.Monad        hiding (fmap)
 import           Data.Aeson           (ToJSON, FromJSON)
@@ -41,6 +46,7 @@ PlutusTx.unstableMakeIsData ''VestingParam
 PlutusTx.makeLift ''VestingParam
 
 {-# INLINABLE mkValidator #-}
+--Unit datum used here, returns a validator, so our validator here takes extra stuff
 mkValidator :: VestingParam -> () -> () -> ScriptContext -> Bool
 mkValidator p () () ctx =
     traceIfFalse "beneficiary's signature missing" checkSig      &&
