@@ -54,6 +54,9 @@ mkValidator dat () ctx
       sigs :: [PubKeyHash] --the sigs are a list of public key hashes
       sigs = txInfoSignatories info
 
+      range :: SlotRange
+      range = txInfoValidRange info
+
 data Vesting
 instance Scripts.ScriptType Vesting where
     type instance DatumType Vesting = VestingDatum
