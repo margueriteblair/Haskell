@@ -47,6 +47,12 @@ mkValidator dat () ctx
     | (beneficiary1 dat `elem` sigs) && (to (deadline dat) `contains` range) = True
     | (beneficiary2 dat `elem` sigs) && (from (1 + deadline dat) `contains` range) = True
     | otherwise = False
+  where
+      info :: TxInfo
+      info = txInfoSignatories info
+
+      sigs :: [PubKeyHash] --the sigs are a list of public key hashes
+      sigs = txInfoSignatories info
 
 data Vesting
 instance Scripts.ScriptType Vesting where
