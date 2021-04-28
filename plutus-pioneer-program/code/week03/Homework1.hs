@@ -140,6 +140,7 @@ endpoints = (give' `select` grab') >> endpoints
     give' = endpoint @"give" >>= give
     grab' = endpoint @"grab" >>  grab
 
+
 mkSchemaDefinitions ''VestingSchema
 
 mkKnownCurrencies []
