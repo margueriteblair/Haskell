@@ -34,7 +34,15 @@ import           Text.Printf          (printf)
 
 {-# INLINABLE mkValidator #-}
 mkValidator :: PubKeyHash -> Slot -> () -> ScriptContext -> Bool
-mkValidator _ _ _ _ = False -- FIX ME!
+mkValidator pkh s () ctx =
+    traceIfFalse "beneficiary's signature is missing" checkSig &&
+    traceIfFalse "deadline not reached" checkDeadline
+  where
+      info :: TxInfo
+      info = ScriptContextTxInfo ctx
+
+      checkSig :: Bool
+      checkSig = phk `elem` txInfoSignatories info
 
 data Vesting
 instance Scripts.ScriptType Vesting where
