@@ -46,6 +46,7 @@ mkValidator pkh s () ctx =
 
       checkDeadline :: Bool
       checkDeadline = from s `contains` txInfoValidRange info
+      
 data Vesting
 instance Scripts.ScriptType Vesting where
     type instance DatumType Vesting = Slot
