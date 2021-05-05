@@ -1,10 +1,11 @@
 module Week04.Either where
 
 import Text.Read (readMaybe)
-import Week04.Monad
+-- import Week04.Monad
 
 readEither :: Read a => String -> Either String a
 readEither s = case readMaybe s of
+    --can't parse is our error message and we append the string
     Nothing -> Left $ "can't parse: " ++ s
     Just a  -> Right a
 
