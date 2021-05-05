@@ -12,6 +12,8 @@ foo x y z = case readMaybe x of
             Nothing -> Nothing
             Just m  -> Just (k + l + m)
 
+--Bind maybe simplifies the foo' function from foo.
+--Helper function, we then use inline
 bindMaybe :: Maybe a -> (a -> Maybe b) -> Maybe b
 bindMaybe Nothing  _ = Nothing
 bindMaybe (Just x) f = f x
