@@ -9,6 +9,9 @@ readEither s = case readMaybe s of
     Nothing -> Left $ "can't parse: " ++ s
     Just a  -> Right a
 
+--Left represents an error, right is the correct non-nothing response
+--Right is like "Just", Left is like "Nothing"
+--This foo function still has lots of repitition
 foo :: String -> String -> String -> Either String Int
 foo x y z = case readEither x of
     Left err -> Left err
@@ -22,6 +25,7 @@ bindEither :: Either String a -> (a -> Either String b) -> Either String b
 bindEither (Left err) _ = Left err
 bindEither (Right x)  f = f x
 
+--foo rewritten with readEither
 foo' :: String -> String -> String -> Either String Int
 foo' x y z = readEither x `bindEither` \k ->
              readEither y `bindEither` \l ->
