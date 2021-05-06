@@ -21,6 +21,7 @@ foo x y z = case readEither x of
             Left err -> Left err
             Right m  -> Right (k + l + m)
 
+--Helper function again, replace each Maybe with Either String
 bindEither :: Either String a -> (a -> Either String b) -> Either String b
 bindEither (Left err) _ = Left err
 bindEither (Right x)  f = f x
