@@ -1,5 +1,14 @@
 module Week04.Monad where
 
+{- 
+IO is for real world side effects,
+Maybe is for computations that can fail wit an error message
+Writer is for computations that will be logged with an error message output
+
+Monads can be summed up as a computation with the potential for some side effect. This side effect
+can be real world, failure, etc
+-}
+
 -- (>>=)      :: IO a            -> (a -> IO b)            -> IO b
 -- bindMaybe  :: Maybe a         -> (a -> Maybe b)         -> Maybe b
 -- bindEither :: Either String a -> (a -> Either String b) -> Either String b
