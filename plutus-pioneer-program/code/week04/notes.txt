@@ -20,4 +20,7 @@ foo = ...
 
 We don't know what the value of foo is, but we know that foo output in Haskell will be the same both times.
 
-REFERENTIAL TRANSPARENCY.
+REFERENTIAL TRANSPARENCY is what this is called. Makes refactoring easier.
+
+You need side effects to have effects on the world! We need results to happen. We need side effects for programs to have utility.
+"Haskell is useless"
