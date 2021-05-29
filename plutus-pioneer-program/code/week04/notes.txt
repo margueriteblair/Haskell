@@ -36,4 +36,6 @@ Maybe is another keyword
 
 GHCI allows you to execute IO actions too
 
+type Functor :: (* -> *) -> Constraint
+
 
