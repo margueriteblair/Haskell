@@ -10,3 +10,14 @@ In Java code, the first and second call of foo can very well result in different
 There's no way to say that the first and second call are the same.
 
 We'd say some "IO" happens in this Java code
+
+In Haskell, the situation is different:
+
+foo :: int
+foo = ...
+
+... foo ... foo ...
+
+We don't know what the value of foo is, but we know that foo output in Haskell will be the same both times.
+
+REFERENTIAL TRANSPARENCY.
