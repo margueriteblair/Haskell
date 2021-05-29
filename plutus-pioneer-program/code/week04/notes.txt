@@ -24,3 +24,16 @@ REFERENTIAL TRANSPARENCY is what this is called. Makes refactoring easier.
 
 You need side effects to have effects on the world! We need results to happen. We need side effects for programs to have utility.
 "Haskell is useless"
+
+Haskell's way to deal with side effects is the IO constructor or the IO monad.
+
+foo :: IO int //this is the way to deal with side effects in Haskell
+foo = ...
+
+Maybe is another keyword
+
+"IO Int" means it's an action/recipe to compute an int, and this computation can invoke side effects
+
+GHCI allows you to execute IO actions too
+
+
