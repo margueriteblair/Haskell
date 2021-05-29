@@ -1,0 +1,12 @@
+We'll be looking at IO as well:
+
+public static int foo() {
+    ... //example java code
+}
+
+... foo() .. foo() 
+
+In Java code, the first and second call of foo can very well result in different integers.
+There's no way to say that the first and second call are the same.
+
+We'd say some "IO" happens in this Java code
