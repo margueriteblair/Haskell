@@ -37,5 +37,7 @@ Maybe is another keyword
 GHCI allows you to execute IO actions too
 
 type Functor :: (* -> *) -> Constraint
-hi
 
+>> character chains two IO actions together, ignoring the actions of the first
+
+putStrLn "Hello" >> putStrLn "World" //this will chain together "Hello \n World"
