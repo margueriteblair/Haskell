@@ -41,3 +41,7 @@ type Functor :: (* -> *) -> Constraint
 >> character chains two IO actions together, ignoring the actions of the first
 
 putStrLn "Hello" >> putStrLn "World" //this will chain together "Hello \n World"
+
+>:t (>>=) this is bind
+
+note for psuh
