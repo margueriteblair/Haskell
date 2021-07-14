@@ -1,2 +1,5 @@
 - The accounting model that Cardano uses is the eUTXO model.
 - Without being extended, the UTXO model is what's used by Bitcoin
+- It's important to note that we can only use complete UTXO's as an input.
+So if Alice has 100 Ada to start, she cannot just send Bob 10, she has to send the whole 100 and then receive change.
+- In any UTXO TX, the sum of the input values must equal the sum of the output values.
