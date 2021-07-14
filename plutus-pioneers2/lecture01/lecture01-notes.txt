@@ -1,0 +1,2 @@
+- The accounting model that Cardano uses is the eUTXO model.
+- Without being extended, the UTXO model is what's used by Bitcoin
