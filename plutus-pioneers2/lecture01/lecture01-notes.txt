@@ -3,3 +3,6 @@
 - It's important to note that we can only use complete UTXO's as an input.
 So if Alice has 100 Ada to start, she cannot just send Bob 10, she has to send the whole 100 and then receive change.
 - In any UTXO TX, the sum of the input values must equal the sum of the output values.
+- On the blockchain that is governed by the UTXO model, two things happen when a transaction occurs:
+    1. Some UTXO's become spent
+    2. new UTXO's appear
