@@ -20,3 +20,6 @@ There can be many outcomes of a script.
 - We don't do digital signatures, we use the redeemer instead on the input side.
 - The scripts have contexts.
 - Redeemer and datum will help decide if it's okay for the transaction to consume the output or not
+- Who is responsible for providing the datum, redeemer, and validator?
+    - The spending transaction!
+    - The producing TX only has to provide hashes
