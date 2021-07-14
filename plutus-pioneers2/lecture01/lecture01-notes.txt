@@ -9,4 +9,7 @@ So if Alice has 100 Ada to start, she cannot just send Bob 10, she has to send t
 
 - You need to add signatures for complex transactions. 
 - You cant use signatures in Daedalus / Yoroi, so you'd have to use Cardano-cli for something like this
-- In ethereum, their scripts can see the entirety of the blockchain
+- In ethereum, their scripts can see the entirety of the blockchain, but this means there are lots of side effects.
+There can be many outcomes of a script.
+- Cardano comes between Bitcoin and Eth.
+    - Script cannot see the whole blockchain, but it can see the entire transaction
