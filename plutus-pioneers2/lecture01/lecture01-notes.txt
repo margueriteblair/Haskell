@@ -13,3 +13,10 @@ So if Alice has 100 Ada to start, she cannot just send Bob 10, she has to send t
 There can be many outcomes of a script.
 - Cardano comes between Bitcoin and Eth.
     - Script cannot see the whole blockchain, but it can see the entire transaction
+- There are 3 main pieces that make Cardano scripts so powerful: Script, Redeemer, Datum
+    1. The Datum is a piece of data that can be assocated with the UTXO
+- Every thing in Cardano can be expressed in Eth
+- In the eUTXO, we replace public key addresses in normal UTXO with plutus scripts.
+- We don't do digital signatures, we use the redeemer instead on the input side.
+- The scripts have contexts.
+- Redeemer and datum will help decide if it's okay for the transaction to consume the output or not
