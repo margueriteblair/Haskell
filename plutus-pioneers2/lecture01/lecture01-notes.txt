@@ -6,3 +6,6 @@ So if Alice has 100 Ada to start, she cannot just send Bob 10, she has to send t
 - On the blockchain that is governed by the UTXO model, two things happen when a transaction occurs:
     1. Some UTXO's become spent
     2. new UTXO's appear
+
+- You need to add signatures for complex transactions. 
+- You cant use signatures in Daedalus / Yoroi, so you'd have to use Cardano-cli for something like this
