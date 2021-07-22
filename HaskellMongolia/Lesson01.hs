@@ -15,3 +15,6 @@ chain2 =
     Block chain1 4
 
 -- GenesisBlock is a standalone chain and therefore can be placed inthe Blockconstructor
+
+chain2' =
+    Block (Block GenesisBlock 2) 4
