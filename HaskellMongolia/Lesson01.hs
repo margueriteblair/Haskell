@@ -21,5 +21,7 @@ chain2' =
 
 --Chain length is a function that operates on our chain and returns of the length of the given chain
 --Here, we recursively call chainLength until we reach the gensis block of our passed in chain
+--Because Haskell has type inference, we don't need to have the method signature at the top
+chainLength :: Chain -> Int
 chainLength GenesisBlock = 0
 chainLength (Block c _)  = chainLength c + 1
