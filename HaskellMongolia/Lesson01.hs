@@ -25,3 +25,9 @@ chain2' =
 chainLength :: Chain -> Int
 chainLength GenesisBlock = 0
 chainLength (Block c _)  = chainLength c + 1
+
+
+--hasBlock tests whether a given chain has a block w/ a particular value
+hasBlock x GenesisBlock = False
+hasBlock x (Block c t) =
+    x == t || hasBlock x c
