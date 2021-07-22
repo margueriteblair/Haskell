@@ -28,6 +28,8 @@ chainLength (Block c _)  = chainLength c + 1
 
 
 --hasBlock tests whether a given chain has a block w/ a particular value
+--Genesis is automatically false
+hasBlock :: Int -> Chain -> Bool
 hasBlock x GenesisBlock = False
 hasBlock x (Block c t) =
     x == t || hasBlock x c
