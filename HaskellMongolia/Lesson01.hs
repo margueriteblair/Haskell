@@ -18,3 +18,7 @@ chain2 =
 
 chain2' =
     Block (Block GenesisBlock 2) 4
+
+--Chain length is a function that operates on our chain and returns of the length of the given chain
+chainLength GenesisBlock = 0
+chainLength (Block c _)  = chainLength c + 1
