@@ -33,3 +33,6 @@ hasBlock :: Int -> Chain -> Bool
 hasBlock x GenesisBlock = False
 hasBlock x (Block c t) =
     x == t || hasBlock x c
+-- || and && both of these are Bool -> Bool -> Bool
+-- notes
+Block :: Chain -> Txs -> Chain
