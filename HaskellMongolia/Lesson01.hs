@@ -36,3 +36,4 @@ hasBlock x (Block c t) =
 -- || and && both of these are Bool -> Bool -> Bool
 -- notes
 Block :: Chain -> Txs -> Chain
+
