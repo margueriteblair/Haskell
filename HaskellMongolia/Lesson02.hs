@@ -8,7 +8,7 @@ containsBlock x (Block c t) =
 
 --Remember, Txs is just a type synonym for Integer,
 -- That being said, we can make a function that'll determine whether this Tx/Int meets a given criteria
-
+--We need the parenthesis to show that it's one argument in conjunction
 hasBlockProp :: (Txs -> Bool) -> Chain -> Bool
 hasBlockProp prop GensisBlock = False
 hasBlockProp prop (Block chain tx) =
