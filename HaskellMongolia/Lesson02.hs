@@ -9,7 +9,12 @@ containsBlock x (Block c t) =
 --Remember, Txs is just a type synonym for Integer,
 -- That being said, we can make a function that'll determine whether this Tx/Int meets a given criteria
 --We need the parenthesis to show that it's one argument in conjunction
+--If we didn't use the parenthesis, then it'd be a curried function w/ 3 args
 hasBlockProp :: (Txs -> Bool) -> Chain -> Bool
 hasBlockProp prop GensisBlock = False
 hasBlockProp prop (Block chain tx) =
     prop t || hasBlockProp prop c
+
+--use a lambda expression to define a function on the fly
+--This would be how it would look in GhCI
+hasBlockProp' :: (\x -> x > 10) chain2 False
