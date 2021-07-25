@@ -18,3 +18,10 @@ hasBlockProp prop (Block chain tx) =
 --use a lambda expression to define a function on the fly
 --This would be how it would look in GhCI
 hasBlockProp' :: (\x -> x > 10) chain2 False
+-- 'even' is a predefined haskell function
+
+hasBlockProp'' :: (Txs -> Bool) -> Chain -> Bool
+hasBlockProp'' = \ prop chain ->
+    case chain of
+        GensisBlock -> False
+        Block c t   -> prop t || hasBlockProp'' prop c
