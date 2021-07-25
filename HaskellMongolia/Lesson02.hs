@@ -34,3 +34,17 @@ hasBlockProp'' = \ prop chain ->
 --Types, polymorphism, overloading:
 --In the example of hasBlockProp, Haskell can see that there's two 'hasBlockProp' conditions/functions defined
 --Haskell doesnt even need the method signature, it can infer what the types shouldbe
+
+
+--Polymorphism:
+data Chain =
+    GenesisBlock
+    | Block Chain Txs
+
+--We can abstract from the type of transactions:
+data Chain txs =
+    GenesisBlock
+    | Block (Chain txs) txs
+--Then the type signatures change
+GenesisBlock :: Chain txs
+Block : Chain txs -> txs -> Chain txs
