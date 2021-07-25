@@ -27,3 +27,10 @@ hasBlockProp'' = \ prop chain ->
         Block c t   -> prop t || hasBlockProp'' prop c
 
 --Now we have chainLength, hasBlock, and hasBlockProp
+--We mostly work on chains recursively; be recursive where the data type is recursive
+-- :: denotes, "of type"
+--'not' Bool -> Bool
+
+--Types, polymorphism, overloading:
+--In the example of hasBlockProp, Haskell can see that there's two 'hasBlockProp' conditions/functions defined
+--Haskell doesnt even need the method signature, it can infer what the types shouldbe
