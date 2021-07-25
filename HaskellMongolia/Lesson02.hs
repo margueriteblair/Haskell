@@ -25,3 +25,5 @@ hasBlockProp'' = \ prop chain ->
     case chain of
         GensisBlock -> False
         Block c t   -> prop t || hasBlockProp'' prop c
+
+--Now we have chainLength, hasBlock, and hasBlockProp
