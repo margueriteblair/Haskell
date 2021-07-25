@@ -48,3 +48,9 @@ data Chain txs =
 --Then the type signatures change
 GenesisBlock :: Chain txs
 Block : Chain txs -> txs -> Chain txs
+
+--How do you recognize type variables?
+--Haskell has relatively strong conventions when it comes to whether identifiers start w/ upper or lower case
+--normal identifiers are lower case, constructors are upper case
+--Then on the type level, you have two different things, data types themselves, such as "Chain" or "Bool"
+--anything that starts w alower case is a variable
