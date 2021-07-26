@@ -76,3 +76,5 @@ anotherChain =
 --This is adding elements onto the front
 aList :: [Int]
 aList = 2 : (1 : [])
+--Remember, a string is just a list of characters
+type String :: [Char]
