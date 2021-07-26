@@ -102,3 +102,12 @@ reverse :: [a] -> [a]
 filter :: (a -> Bool) -> [a] -> [a]
 --Map is a function that takes a function and maps it over all elements in a list
 map :: (a -> b) -> [a] -> [b]
+
+{-
+Pure Functions:
+1. Function results depend solely on their inputs
+2. Functions have no side effects
+
+f :: Int -> Int (will always have the same result)
+g :: Int -> IO Int (won't always have the same result, you'll maybe have side effect, different outcome)
+-}
