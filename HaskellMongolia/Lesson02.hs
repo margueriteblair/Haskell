@@ -64,5 +64,7 @@ Block : Chain txs -> txs -> Chain txs
 --Polymorphic chains are quite similar to built-in lists:
 GenesisBlock :: Chain txs
 Block :: Chain txs -> txs -> Chain txs
+--Empty list represents our genesis block
 [] :: [a]
-(:) :: a -> [a] -> [a]
+(:) :: a -> [a] -> [a] --This is called 'cons' short for constructor
+-- The lsit data type is also parameterized 
