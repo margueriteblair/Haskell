@@ -78,3 +78,14 @@ aList :: [Int]
 aList = 2 : (1 : [])
 --Remember, a string is just a list of characters
 type String :: [Char]
+
+--The built in length function returns an Integer
+length :: Foldable t => t a -> Int
+--Built in elem function to see if an element exists 
+    --Can thing of t a as a list
+elem :: (Foldable t, Eq a) => a -> t a -> Bool
+
+{-
+In Haskell, it's common for you tomake new data types in your code,
+but these new data types will mostly be predicated on existing type classes
+-}
