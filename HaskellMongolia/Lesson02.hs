@@ -88,4 +88,17 @@ elem :: (Foldable t, Eq a) => a -> t a -> Bool
 {-
 In Haskell, it's common for you tomake new data types in your code,
 but these new data types will mostly be predicated on existing type classes
+List of common type classes in HS:
+    Eq, Ord, Num, Fractional, Show, Read, Enum, Boundable, Foldable
 -}
+
+--Other useful predefined functions:
+
+--Reverse a list:
+reverse :: [a] -> [a]
+--Concatenate two lists:
+(++) :: [a] -> [a] -> [a]
+--Filter is a higher order function that takes such a property,takes a list and retains the elems that satsifies the properties
+filter :: (a -> Bool) -> [a] -> [a]
+--Map is a function that takes a function and maps it over all elements in a list
+map :: (a -> b) -> [a] -> [b]
