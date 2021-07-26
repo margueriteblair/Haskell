@@ -68,3 +68,11 @@ Block :: Chain txs -> txs -> Chain txs
 [] :: [a]
 (:) :: a -> [a] -> [a] --This is called 'cons' short for constructor
 -- The lsit data type is also parameterized 
+
+--You always prepend elements to a list, whereas you add elements on to the end of a Chain
+anotherChain :: Chain Int
+anotherChain =
+    Block (Block GenesisBlock 1) 2
+--This is adding elements onto the front
+aList :: [Int]
+aList = 2 : (1 : [])
