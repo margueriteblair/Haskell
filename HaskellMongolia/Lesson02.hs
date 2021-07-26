@@ -60,3 +60,9 @@ Block : Chain txs -> txs -> Chain txs
     --Functions don't support equality tests
 --Equality comparitors get defined as a type class in Haskell:
     -- (==) :: Eq a => a -> a -> Bool
+
+--Polymorphic chains are quite similar to built-in lists:
+GenesisBlock :: Chain txs
+Block :: Chain txs -> txs -> Chain txs
+[] :: [a]
+(:) :: a -> [a] -> [a]
