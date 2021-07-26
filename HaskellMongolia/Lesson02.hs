@@ -54,3 +54,9 @@ Block : Chain txs -> txs -> Chain txs
 --normal identifiers are lower case, constructors are upper case
 --Then on the type level, you have two different things, data types themselves, such as "Chain" or "Bool"
 --anything that starts w alower case is a variable
+
+--We cannot compare two functions in terms of equality
+    --It's more about behavior
+    --Functions don't support equality tests
+--Equality comparitors get defined as a type class in Haskell:
+    -- (==) :: Eq a => a -> a -> Bool
