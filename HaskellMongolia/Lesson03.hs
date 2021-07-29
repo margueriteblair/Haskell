@@ -32,3 +32,10 @@ not Main.True = Main.False
 (||) :: Bool -> Bool -> Bool
 False || c = c
 True || _ = True
+
+--guards vs ifthenelse
+
+--Maybe is for optional values
+data Maybe a = Nothing | Just a 
+--Maybe int, maybe string
+--First arg in constructor is nothing, second is a
