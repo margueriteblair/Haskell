@@ -25,6 +25,6 @@ For non-overlapping definitions, the order does not matter
 Best practice is to split cases into different constructors
 -}
 
-not :: Bool -> Bool
-not False = True
-not True = False
+not :: Main.Bool -> Main.Bool
+not Main.False = Main.True
+not Main.True = Main.False
