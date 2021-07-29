@@ -51,4 +51,11 @@ ifthenelse True t _e = t
 
 fromMaybe :: a -> Maybe a -> a
 fromMaybe def Nothing = def
-fromMaybe _ (Just a) = a
+fromMaybe _ (Just a) = a --a is a convention, ones a type, one's a var
+
+-- `backticks` to use a function infix
+
+data (a, b) = (a, b) --pair syntax
+
+swap :: (a, b) -> (b, a)
+swap (a, b) = (b, a)
