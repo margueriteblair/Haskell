@@ -21,5 +21,10 @@ Underscore / wildcard pattern
 Literals (numbers, chars, strings, list)
 For non-overlapping definitions, the order does not matter
     - this means that if the cases are distinct, there's no overlapping qualitites, then the order doesn't matter
+    - if they're really non-overlapping, then it really doesn't matter how you permute them
 Best practice is to split cases into different constructors
 -}
+
+not :: Bool -> Bool
+not False = True
+not True = False
