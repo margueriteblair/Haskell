@@ -44,3 +44,11 @@ data Maybe a = Nothing | Just a
 --Maybe has two constructors, nothing and just
 Nothing :: Maybe a
 Just :: a -> Maybe a 
+
+ifthenelse :: Bool -> a -> a -> a
+ifthenelse False _t e = e
+ifthenelse True t _e = t
+
+fromMaybe :: a -> Maybe a -> a
+fromMaybe def Nothing = def
+fromMaybe _ (Just a) = a
