@@ -28,3 +28,7 @@ Best practice is to split cases into different constructors
 not :: Main.Bool -> Main.Bool
 not Main.False = Main.True
 not Main.True = Main.False
+
+(||) :: Bool -> Bool -> Bool
+False || c = c
+True || _ = True
