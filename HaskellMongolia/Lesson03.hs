@@ -39,3 +39,8 @@ True || _ = True
 data Maybe a = Nothing | Just a 
 --Maybe int, maybe string
 --First arg in constructor is nothing, second is a
+--Like in Java, this would be if something were to potentially return null
+
+--Maybe has two constructors, nothing and just
+Nothing :: Maybe a
+Just :: a -> Maybe a 
