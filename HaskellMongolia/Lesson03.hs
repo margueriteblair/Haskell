@@ -59,3 +59,15 @@ data (a, b) = (a, b) --pair syntax
 
 swap :: (a, b) -> (b, a)
 swap (a, b) = (b, a)
+
+--function of arg, then returns func that'll take the second argument
+--look at currying
+curry :: ((a, b) -> c) -> a -> b -> c
+curry f a b = f (a, b)
+
+--lists, are important in functional programming
+--haskell has a lot of special syntax
+--notes on lists
+data [a] = [] | a : [a] --first case is an empty list, second is one w a tail
+
+
