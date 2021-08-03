@@ -70,4 +70,9 @@ curry f a b = f (a, b)
 --notes on lists
 data [a] = [] | a : [a] --first case is an empty list, second is one w a tail
 
+--elem:
+elem :: Eq a => a -> [a] -> Bool
+elem x [] = False
+elem x (y : ys) = x == y || elem x ys
+
 
