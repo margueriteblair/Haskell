@@ -79,4 +79,9 @@ elem x (y : ys) = x == y || elem x ys
 [] ++ ys = ys 
 (x:xs) ++ ys = x : (xs ++ ys)
 
+--using appending to reverse a list
+reverse :: Eq a => [a] -> [a]
+reverse [] = []
+reverse (x : xs) = xs ++ [x]
+
 
