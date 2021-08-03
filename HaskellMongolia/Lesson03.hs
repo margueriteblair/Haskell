@@ -75,4 +75,8 @@ elem :: Eq a => a -> [a] -> Bool
 elem x [] = False
 elem x (y : ys) = x == y || elem x ys
 
+(++) :: [a] -> [a] -> [a]
+[] ++ ys = ys 
+(x:xs) ++ ys = x : (xs ++ ys)
+
 
