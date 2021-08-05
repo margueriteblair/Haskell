@@ -46,3 +46,21 @@ getSender (Transaction _ s _) = s
 
 getReceiver :: Transaction -> String
 getReceiver (Transaction _ _ r) = r 
+
+data Transaction' = 
+    Transaction'
+    {
+        trAmount :: Amount
+        trFrom :: Account
+        trTo :: Account
+    }
+
+type Accounts = Table Account Amount --accounts is just a list of accounts w/ their respective amounts
+processTx :: Transaction -> Accounts -> Accounts
+processTx (Transaction amount f t) as =
+    let
+        fOld = fromMaybe 0 (lookup f as)
+        tOld = fromMaybe 0 (lookup t as)
+    in
+        insert f (fOld - amount)
+        (insert t (tOld + amount) as)
