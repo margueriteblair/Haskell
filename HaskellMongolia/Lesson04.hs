@@ -26,3 +26,13 @@ lookup k ((k', v') : kvs)
     | otherwise = lookup k kvs
 --as we can see here, we don't modify existing tables, we create new ones
 
+--To declare new types we can also use the new type keyword along with the constructor
+newtype Table' k v = Table [(k, v)]
+Table' :: [(k, v)] -> Table k v 
+
+--modeling a transaction
+data Transaction =
+    Transaction Amount Account Account
+    deriving (Eq, Show)
+type Amount = Int 
+type Account = String
