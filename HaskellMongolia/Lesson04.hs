@@ -18,5 +18,11 @@ delete k ((k', v) : kvs )
 
 delete' :: Eq k => k -> Table k v -> Table k v 
 delete' k = filter (\ (k', _) -> not (k == k'))
--- lookup :: Eq k => k -> Table k v -> Maybe v  --lookup where we need equality to compare. if the key is not found in the table then we return nothing
+
+lookup :: Eq k => k -> Table k v -> Maybe v  --lookup where we need equality to compare. if the key is not found in the table then we return nothing
+lookup _ [] = Nothing 
+lookup k ((k', v') : kvs)
+    | k == k' = Just v' 
+    | otherwise = lookup k kvs
 --as we can see here, we don't modify existing tables, we create new ones
+
