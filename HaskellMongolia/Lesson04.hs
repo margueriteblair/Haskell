@@ -36,3 +36,13 @@ data Transaction =
     deriving (Eq, Show)
 type Amount = Int 
 type Account = String
+
+--We can extract components from a transaction:
+getAmount :: Transaction -> Int 
+getAmount (Transaction a _ _) = a
+
+getSender :: Transaction -> String 
+getSender (Transaction _ s _) = s 
+
+getReceiver :: Transaction -> String
+getReceiver (Transaction _ _ r) = r 
