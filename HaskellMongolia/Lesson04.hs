@@ -64,3 +64,4 @@ processTx (Transaction amount f t) as =
     in
         insert f (fOld - amount)
         (insert t (tOld + amount) as)
+--change
