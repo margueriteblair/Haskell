@@ -15,4 +15,4 @@ flatten (Node l r) = flatten l ++ flatten r
 --leaves have a height of 0
 height :: Tree a -> Int
 height (Leaf x) = 0
-height (Node l r) = 1 + max (height l) (height r) --we take the max and add 1
+height (Node l r) = 1 + max (height l) (height r) --we take the max and add 1 --hello
