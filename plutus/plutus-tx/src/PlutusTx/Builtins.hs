@@ -1,24 +1,28 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PolyKinds #-}
--- This ensures that we don't put *anything* about these functions into the interface
--- file, otherwise GHC can be clever about the ones that are always error, even though
--- they're NOINLINE!
-{-# OPTIONS_GHC -O0 #-}
+{-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
+{-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
+
 -- | Primitive names and functions for working with Plutus Core builtins.
 module PlutusTx.Builtins (
                                 -- * Bytestring builtins
-                                ByteString
-                                , concatenate
-                                , takeByteString
-                                , dropByteString
+                                BuiltinByteString
+                                , appendByteString
+                                , consByteString
+                                , sliceByteString
+                                , lengthOfByteString
+                                , indexByteString
                                 , emptyByteString
                                 , equalsByteString
                                 , lessThanByteString
+                                , lessThanEqualsByteString
                                 , greaterThanByteString
+                                , greaterThanEqualsByteString
                                 , sha2_256
                                 , sha3_256
+                                , blake2b_256
                                 , verifySignature
+                                , decodeUtf8
                                 -- * Integer builtins
+                                , Integer
                                 , addInteger
                                 , subtractInteger
                                 , multiplyInteger
@@ -27,195 +31,324 @@ module PlutusTx.Builtins (
                                 , quotientInteger
                                 , remainderInteger
                                 , greaterThanInteger
-                                , greaterThanEqInteger
+                                , greaterThanEqualsInteger
                                 , lessThanInteger
-                                , lessThanEqInteger
+                                , lessThanEqualsInteger
                                 , equalsInteger
                                 -- * Error
                                 , error
                                 -- * Data
-                                , Data (..)
+                                , BuiltinData
+                                , chooseData
+                                , matchData
+                                , matchData'
+                                , equalsData
+                                , mkConstr
+                                , mkMap
+                                , mkList
+                                , mkI
+                                , mkB
+                                , unsafeDataAsConstr
+                                , unsafeDataAsMap
+                                , unsafeDataAsList
+                                , unsafeDataAsI
+                                , unsafeDataAsB
+                                , BI.builtinDataToData
+                                , BI.dataToBuiltinData
                                 -- * Strings
-                                , String
+                                , BuiltinString
                                 , appendString
                                 , emptyString
-                                , charToString
+                                , equalsString
+                                , encodeUtf8
+                                -- * Lists
+                                , matchList
                                 -- * Tracing
                                 , trace
+                                -- * Conversions
+                                , fromBuiltin
+                                , toBuiltin
                                 ) where
 
-import qualified Crypto
-import           Data.ByteString      as BS
-import qualified Data.ByteString.Hash as Hash
-import           Data.Maybe           (fromMaybe)
-import           Prelude              hiding (String, error)
+import           PlutusTx.Base              (const, uncurry)
+import           PlutusTx.Bool              (Bool (..))
+import           PlutusTx.Builtins.Class
+import           PlutusTx.Builtins.Internal (BuiltinByteString (..), BuiltinData, BuiltinString)
+import qualified PlutusTx.Builtins.Internal as BI
+import           PlutusTx.Integer           (Integer)
 
-import           PlutusTx.Data
-import           PlutusTx.Utils       (mustBeReplaced)
-
-{- Note [Builtin name definitions]
-The builtins here have definitions so they can be used in off-chain code too.
-
-However they *must* be replaced by the compiler when used in Plutus Tx code, so
-in particular they must *not* be inlined, otherwise we can't spot them to replace
-them.
--}
-
-{-# NOINLINE concatenate #-}
+{-# INLINABLE appendByteString #-}
 -- | Concatenates two 'ByteString's.
-concatenate :: ByteString -> ByteString -> ByteString
-concatenate = BS.append
+appendByteString :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString
+appendByteString = BI.appendByteString
 
-{-# NOINLINE takeByteString #-}
--- | Returns the n length prefix of a 'ByteString'.
-takeByteString :: Integer -> ByteString -> ByteString
-takeByteString n = BS.take (fromIntegral n)
+{-# INLINABLE consByteString #-}
+-- | Adds a byte to the front of a 'ByteString'.
+consByteString :: Integer -> BuiltinByteString -> BuiltinByteString
+consByteString n bs = BI.consByteString (toBuiltin n) bs
 
-{-# NOINLINE dropByteString #-}
--- | Returns the suffix of a 'ByteString' after n elements.
-dropByteString :: Integer -> ByteString -> ByteString
-dropByteString n = BS.drop (fromIntegral n)
+{-# INLINABLE sliceByteString #-}
+-- | Returns the substring of a 'ByteString' from index 'start' of length 'n'.
+sliceByteString :: Integer -> Integer -> BuiltinByteString -> BuiltinByteString
+sliceByteString start n bs = BI.sliceByteString (toBuiltin start) (toBuiltin n) bs
 
-{-# NOINLINE emptyByteString #-}
+{-# INLINABLE lengthOfByteString #-}
+-- | Returns the length of a 'ByteString'.
+lengthOfByteString :: BuiltinByteString -> Integer
+lengthOfByteString = BI.lengthOfByteString
+
+{-# INLINABLE indexByteString #-}
+-- | Returns the byte of a 'ByteString' at index.
+indexByteString :: BuiltinByteString -> Integer -> Integer
+indexByteString b n = BI.indexByteString b (toBuiltin n)
+
+{-# INLINABLE emptyByteString #-}
 -- | An empty 'ByteString'.
-emptyByteString :: ByteString
-emptyByteString = BS.empty
+emptyByteString :: BuiltinByteString
+emptyByteString = BI.emptyByteString
 
-{-# NOINLINE sha2_256 #-}
+{-# INLINABLE sha2_256 #-}
 -- | The SHA2-256 hash of a 'ByteString'
-sha2_256 :: ByteString -> ByteString
-sha2_256 = Hash.sha2
+sha2_256 :: BuiltinByteString -> BuiltinByteString
+sha2_256 = BI.sha2_256
 
-{-# NOINLINE sha3_256 #-}
+{-# INLINABLE sha3_256 #-}
 -- | The SHA3-256 hash of a 'ByteString'
-sha3_256 :: ByteString -> ByteString
-sha3_256 = Hash.sha3
+sha3_256 :: BuiltinByteString -> BuiltinByteString
+sha3_256 = BI.sha3_256
 
-{-# NOINLINE verifySignature #-}
+{-# INLINABLE blake2b_256 #-}
+-- | The BLAKE2B-256 hash of a 'ByteString'
+blake2b_256 :: BuiltinByteString -> BuiltinByteString
+blake2b_256 = BI.blake2b_256
+
+{-# INLINABLE verifySignature #-}
 -- | Verify that the signature is a signature of the message by the public key.
-verifySignature :: ByteString -> ByteString -> ByteString -> Bool
-verifySignature pubKey message signature =
-  fromMaybe False (Crypto.verifySignature pubKey message signature)
+verifySignature :: BuiltinByteString -> BuiltinByteString -> BuiltinByteString -> Bool
+verifySignature pubKey message signature = fromBuiltin (BI.verifySignature pubKey message signature)
 
-{-# NOINLINE equalsByteString #-}
+{-# INLINABLE equalsByteString #-}
 -- | Check if two 'ByteString's are equal.
-equalsByteString :: ByteString -> ByteString -> Bool
-equalsByteString = (==)
+equalsByteString :: BuiltinByteString -> BuiltinByteString -> Bool
+equalsByteString x y = fromBuiltin (BI.equalsByteString x y)
 
-{-# NOINLINE lessThanByteString #-}
+{-# INLINABLE lessThanByteString #-}
 -- | Check if one 'ByteString' is less than another.
-lessThanByteString :: ByteString -> ByteString -> Bool
-lessThanByteString = (<)
+lessThanByteString :: BuiltinByteString -> BuiltinByteString -> Bool
+lessThanByteString x y = fromBuiltin (BI.lessThanByteString x y)
 
-{-# NOINLINE greaterThanByteString #-}
+{-# INLINABLE lessThanEqualsByteString #-}
+-- | Check if one 'ByteString' is less than or equal to another.
+lessThanEqualsByteString :: BuiltinByteString -> BuiltinByteString -> Bool
+lessThanEqualsByteString x y = fromBuiltin (BI.lessThanEqualsByteString x y)
+
+{-# INLINABLE greaterThanByteString #-}
 -- | Check if one 'ByteString' is greater than another.
-greaterThanByteString :: ByteString -> ByteString -> Bool
-greaterThanByteString = (>)
+greaterThanByteString :: BuiltinByteString -> BuiltinByteString -> Bool
+greaterThanByteString x y = BI.ifThenElse (BI.lessThanEqualsByteString x y) False True
 
-{-# NOINLINE addInteger #-}
+{-# INLINABLE greaterThanEqualsByteString #-}
+-- | Check if one 'ByteString' is greater than another.
+greaterThanEqualsByteString :: BuiltinByteString -> BuiltinByteString -> Bool
+greaterThanEqualsByteString x y = BI.ifThenElse (BI.lessThanByteString x y) False True
+
+{-# INLINABLE decodeUtf8 #-}
+-- | Converts a ByteString to a String.
+decodeUtf8 :: BuiltinByteString -> BuiltinString
+decodeUtf8 = BI.decodeUtf8
+
+{-# INLINABLE addInteger #-}
 -- | Add two 'Integer's.
 addInteger :: Integer -> Integer -> Integer
-addInteger = (+)
+addInteger x y = fromBuiltin (BI.addInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE subtractInteger #-}
+{-# INLINABLE subtractInteger #-}
 -- | Subtract two 'Integer's.
 subtractInteger :: Integer -> Integer -> Integer
-subtractInteger = (-)
+subtractInteger x y = fromBuiltin (BI.subtractInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE multiplyInteger #-}
+{-# INLINABLE multiplyInteger #-}
 -- | Multiply two 'Integer's.
 multiplyInteger :: Integer -> Integer -> Integer
-multiplyInteger = (*)
+multiplyInteger x y = fromBuiltin (BI.multiplyInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE divideInteger #-}
+{-# INLINABLE divideInteger #-}
 -- | Divide two integers.
 divideInteger :: Integer -> Integer -> Integer
-divideInteger = div
+divideInteger x y = fromBuiltin (BI.divideInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE modInteger #-}
+{-# INLINABLE modInteger #-}
 -- | Integer modulo operation.
 modInteger :: Integer -> Integer -> Integer
-modInteger = mod
+modInteger x y = fromBuiltin (BI.modInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE quotientInteger #-}
+{-# INLINABLE quotientInteger #-}
 -- | Quotient of two integers.
 quotientInteger :: Integer -> Integer -> Integer
-quotientInteger = quot
+quotientInteger x y = fromBuiltin (BI.quotientInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE remainderInteger #-}
+{-# INLINABLE remainderInteger #-}
 -- | Take the remainder of dividing two 'Integer's.
 remainderInteger :: Integer -> Integer -> Integer
-remainderInteger = rem
+remainderInteger x y = fromBuiltin (BI.remainderInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE greaterThanInteger #-}
+{-# INLINABLE greaterThanInteger #-}
 -- | Check whether one 'Integer' is greater than another.
 greaterThanInteger :: Integer -> Integer -> Bool
-greaterThanInteger = (>)
+greaterThanInteger x y = BI.ifThenElse (BI.lessThanEqualsInteger x y ) False True
 
-{-# NOINLINE greaterThanEqInteger #-}
+{-# INLINABLE greaterThanEqualsInteger #-}
 -- | Check whether one 'Integer' is greater than or equal to another.
-greaterThanEqInteger :: Integer -> Integer -> Bool
-greaterThanEqInteger = (>=)
+greaterThanEqualsInteger :: Integer -> Integer -> Bool
+greaterThanEqualsInteger x y = BI.ifThenElse (BI.lessThanInteger x y) False True
 
-{-# NOINLINE lessThanInteger #-}
+{-# INLINABLE lessThanInteger #-}
 -- | Check whether one 'Integer' is less than another.
 lessThanInteger :: Integer -> Integer -> Bool
-lessThanInteger = (<)
+lessThanInteger x y = fromBuiltin (BI.lessThanInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE lessThanEqInteger #-}
+{-# INLINABLE lessThanEqualsInteger #-}
 -- | Check whether one 'Integer' is less than or equal to another.
-lessThanEqInteger :: Integer -> Integer -> Bool
-lessThanEqInteger = (<=)
+lessThanEqualsInteger :: Integer -> Integer -> Bool
+lessThanEqualsInteger x y = fromBuiltin (BI.lessThanEqualsInteger (toBuiltin x) (toBuiltin y))
 
-{-# NOINLINE equalsInteger #-}
+{-# INLINABLE equalsInteger #-}
 -- | Check if two 'Integer's are equal.
 equalsInteger :: Integer -> Integer -> Bool
-equalsInteger = (==)
+equalsInteger x y = fromBuiltin (BI.equalsInteger (toBuiltin x) (toBuiltin y))
 
-{- Note [Delaying error]
-The Plutus Core 'error' builtin is of type 'forall a . a', but the
-one we expose here is of type 'forall a . () -> a'.
-
-This is because it's hard to get the evaluation order right with
-the non-delayed version - it's easy to end up with it getting thrown
-unconditionally, or before some other effect (e.g. tracing). On the other
-hand, it's much easier to work with the delayed version.
-
-But why not just define that in the library? i.e.
-
-    error = \_ -> Builtins.error
-
-The answer is that GHC is eager to inline and reduce this function, which
-does the Wrong Thing. We can't stop GHC doing this (at the moment), but
-for most of our functions it's not a *semantic* problem. Here, however,
-it is a problem. So we just expose the delayed version as the builtin.
--}
-
-{-# NOINLINE error #-}
+{-# INLINABLE error #-}
 -- | Aborts evaluation with an error.
 error :: () -> a
-error = mustBeReplaced "error"
+error x = BI.error (toBuiltin x)
 
--- Note: IsString instance is in 'Prelude.hs'
--- | An opaque type representing Plutus Core strings.
-data String
-
-{-# NOINLINE appendString #-}
+{-# INLINABLE appendString #-}
 -- | Append two 'String's.
-appendString :: String -> String -> String
-appendString = mustBeReplaced "appendString"
+appendString :: BuiltinString -> BuiltinString -> BuiltinString
+appendString = BI.appendString
 
-{-# NOINLINE emptyString #-}
+{-# INLINABLE emptyString #-}
 -- | An empty 'String'.
-emptyString :: String
-emptyString = mustBeReplaced "emptyString"
+emptyString :: BuiltinString
+emptyString = BI.emptyString
 
-{-# NOINLINE charToString #-}
--- | Turn a 'Char' into a 'String'.
-charToString :: Char -> String
-charToString = mustBeReplaced "charToString"
+{-# INLINABLE equalsString #-}
+-- | Check if two strings are equal
+equalsString :: BuiltinString -> BuiltinString -> Bool
+equalsString x y = fromBuiltin (BI.equalsString x y)
 
-{-# NOINLINE trace #-}
--- | Logs the given 'String' to the evaluation log.
-trace :: String -> ()
-trace _ = () --mustBeReplaced "trace"
+{-# INLINABLE trace #-}
+-- | Emit the given string as a trace message before evaluating the argument.
+trace :: BuiltinString -> a -> a
+trace = BI.trace
+
+{-# INLINABLE encodeUtf8 #-}
+-- | Convert a String into a ByteString.
+encodeUtf8 :: BuiltinString -> BuiltinByteString
+encodeUtf8 = BI.encodeUtf8
+
+matchList :: forall a r . BI.BuiltinList a -> r -> (a -> BI.BuiltinList a -> r) -> r
+matchList l nilCase consCase = BI.chooseList l (const nilCase) (\_ -> consCase (BI.head l) (BI.tail l)) ()
+
+{-# INLINABLE chooseData #-}
+-- | Given five values for the five different constructors of 'BuiltinData', selects
+-- one depending on which corresponds to the actual constructor of the given value.
+chooseData :: forall a . BuiltinData -> a -> a -> a -> a -> a -> a
+chooseData = BI.chooseData
+
+{-# INLINABLE mkConstr #-}
+-- | Constructs a 'BuiltinData' value with the @Constr@ constructor.
+mkConstr :: Integer -> [BuiltinData] -> BuiltinData
+mkConstr i args = BI.mkConstr (toBuiltin i) (toBuiltin args)
+
+{-# INLINABLE mkMap #-}
+-- | Constructs a 'BuiltinData' value with the @Map@ constructor.
+mkMap :: [(BuiltinData, BuiltinData)] -> BuiltinData
+mkMap es = BI.mkMap (toBuiltin es)
+
+{-# INLINABLE mkList #-}
+-- | Constructs a 'BuiltinData' value with the @List@ constructor.
+mkList :: [BuiltinData] -> BuiltinData
+mkList l = BI.mkList (toBuiltin l)
+
+{-# INLINABLE mkI #-}
+-- | Constructs a 'BuiltinData' value with the @I@ constructor.
+mkI :: Integer -> BuiltinData
+mkI = BI.mkI
+
+{-# INLINABLE mkB #-}
+-- | Constructs a 'BuiltinData' value with the @B@ constructor.
+mkB :: BuiltinByteString -> BuiltinData
+mkB = BI.mkB
+
+{-# INLINABLE unsafeDataAsConstr #-}
+-- | Deconstructs a 'BuiltinData' as a @Constr@, or fails if it is not one.
+unsafeDataAsConstr :: BuiltinData -> (Integer, [BuiltinData])
+unsafeDataAsConstr d = fromBuiltin (BI.unsafeDataAsConstr d)
+
+{-# INLINABLE unsafeDataAsMap #-}
+-- | Deconstructs a 'BuiltinData' as a @Map@, or fails if it is not one.
+unsafeDataAsMap :: BuiltinData -> [(BuiltinData, BuiltinData)]
+unsafeDataAsMap d = fromBuiltin (BI.unsafeDataAsMap d)
+
+{-# INLINABLE unsafeDataAsList #-}
+-- | Deconstructs a 'BuiltinData' as a @List@, or fails if it is not one.
+unsafeDataAsList :: BuiltinData -> [BuiltinData]
+unsafeDataAsList d = fromBuiltin (BI.unsafeDataAsList d)
+
+{-# INLINABLE unsafeDataAsI #-}
+-- | Deconstructs a 'BuiltinData' as an @I@, or fails if it is not one.
+unsafeDataAsI :: BuiltinData -> Integer
+unsafeDataAsI d = fromBuiltin (BI.unsafeDataAsI d)
+
+{-# INLINABLE unsafeDataAsB #-}
+-- | Deconstructs a 'BuiltinData' as a @B@, or fails if it is not one.
+unsafeDataAsB :: BuiltinData -> BuiltinByteString
+unsafeDataAsB = BI.unsafeDataAsB
+
+{-# INLINABLE equalsData #-}
+-- | Check if two 'BuiltinData's are equal.
+equalsData :: BuiltinData -> BuiltinData -> Bool
+equalsData d1 d2 = fromBuiltin (BI.equalsData d1 d2)
+
+{-# INLINABLE matchData #-}
+-- | Given a 'BuiltinData' value and matching functions for the five constructors,
+-- applies the appropriate matcher to the arguments of the constructor and returns the result.
+matchData
+    :: BuiltinData
+    -> (Integer -> [BuiltinData] -> r)
+    -> ([(BuiltinData, BuiltinData)] -> r)
+    -> ([BuiltinData] -> r)
+    -> (Integer -> r)
+    -> (BuiltinByteString -> r)
+    -> r
+matchData d constrCase mapCase listCase iCase bCase =
+   chooseData
+   d
+   (\_ -> uncurry constrCase (unsafeDataAsConstr d))
+   (\_ -> mapCase (unsafeDataAsMap d))
+   (\_ -> listCase (unsafeDataAsList d))
+   (\_ -> iCase (unsafeDataAsI d))
+   (\_ -> bCase (unsafeDataAsB d))
+   ()
+
+{-# INLINABLE matchData' #-}
+-- | Given a 'BuiltinData' value and matching functions for the five constructors,
+-- applies the appropriate matcher to the arguments of the constructor and returns the result.
+matchData'
+    :: BuiltinData
+    -> (Integer -> BI.BuiltinList BuiltinData -> r)
+    -> (BI.BuiltinList (BI.BuiltinPair BuiltinData BuiltinData) -> r)
+    -> (BI.BuiltinList BuiltinData -> r)
+    -> (Integer -> r)
+    -> (BuiltinByteString -> r)
+    -> r
+matchData' d constrCase mapCase listCase iCase bCase =
+   chooseData
+   d
+   (\_ -> let tup = BI.unsafeDataAsConstr d in constrCase (BI.fst tup) (BI.snd tup))
+   (\_ -> mapCase (BI.unsafeDataAsMap d))
+   (\_ -> listCase (BI.unsafeDataAsList d))
+   (\_ -> iCase (unsafeDataAsI d))
+   (\_ -> bCase (unsafeDataAsB d))
+   ()

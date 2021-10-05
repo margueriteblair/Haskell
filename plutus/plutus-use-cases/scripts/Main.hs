@@ -1,96 +1,118 @@
-module Main(main) where
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE NamedFieldPuns     #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies       #-}
 
-import qualified Control.Foldl                 as L
-import           Control.Monad.Freer           (run)
-import qualified Data.ByteString.Lazy          as BSL
-import           Data.Default                  (Default (..))
-import           Data.Foldable                 (traverse_)
-import           Flat                          (flat)
-import           Ledger.Index                  (ScriptValidationEvent (sveScript))
-import           Plutus.Trace.Emulator         (EmulatorTrace)
-import qualified Plutus.Trace.Emulator         as Trace
-import           Plutus.V1.Ledger.Scripts      (Script (..))
-import qualified Streaming.Prelude             as S
-import           System.Directory              (createDirectoryIfMissing)
-import           System.Environment            (getArgs)
-import           System.FilePath               ((</>))
-import qualified Wallet.Emulator.Folds         as Folds
-import           Wallet.Emulator.Stream        (foldEmulatorStreamM)
+module Main(main, ExportTx(..)) where
 
-import qualified Plutus.Contracts.Crowdfunding as Crowdfunding
-import qualified Plutus.Contracts.Game         as Game
-import           Spec.Auction                  as Auction
-import qualified Spec.Currency                 as Currency
-import qualified Spec.Escrow                   as Escrow
-import qualified Spec.Future                   as Future
-import qualified Spec.GameStateMachine         as GameStateMachine
-import qualified Spec.MultiSig                 as MultiSig
-import qualified Spec.MultiSigStateMachine     as MultiSigStateMachine
-import qualified Spec.PingPong                 as PingPong
-import qualified Spec.Prism                    as Prism
-import qualified Spec.PubKey                   as PubKey
-import qualified Spec.Stablecoin               as Stablecoin
-import qualified Spec.TokenAccount             as TokenAccount
-import qualified Spec.Vesting                  as Vesting
+import qualified Cardano.Api                    as C
+import           Data.Default                   (Default (..))
+import           Data.Monoid                    (Sum (..))
+import           Ledger.Index                   (ValidatorMode (..))
+import           Options.Applicative
+import           Plutus.Contract.Wallet         (ExportTx (..))
+import qualified Plutus.Contracts.Crowdfunding  as Crowdfunding
+import qualified Plutus.Contracts.Uniswap.Trace as Uniswap
+import           Plutus.Trace                   (Command (..), ScriptsConfig (..), showStats, writeScriptsTo)
+import qualified Spec.Currency                  as Currency
+import qualified Spec.Escrow                    as Escrow
+import qualified Spec.Future                    as Future
+import qualified Spec.GameStateMachine          as GameStateMachine
+import qualified Spec.MultiSig                  as MultiSig
+import qualified Spec.MultiSigStateMachine      as MultiSigStateMachine
+import qualified Spec.PingPong                  as PingPong
+import qualified Spec.Prism                     as Prism
+import qualified Spec.PubKey                    as PubKey
+import qualified Spec.Stablecoin                as Stablecoin
+import qualified Spec.TokenAccount              as TokenAccount
+import qualified Spec.Vesting                   as Vesting
+
+writeWhat :: Command -> String
+writeWhat (Scripts FullyAppliedValidators) = "scripts (fully applied)"
+writeWhat (Scripts UnappliedValidators)    = "scripts (unapplied)"
+writeWhat Transactions{}                   = "transactions"
+
+pathParser :: Parser FilePath
+pathParser = strArgument (metavar "SCRIPT_PATH" <> help "output path")
+
+protocolParamsParser :: Parser FilePath
+protocolParamsParser = strOption (long "protocol-parameters" <> short 'p' <> help "Path to protocol parameters JSON file" <> showDefault <> value "protocol-parameters.json")
+
+networkIdParser :: Parser C.NetworkId
+networkIdParser =
+    let p = C.Testnet . C.NetworkMagic <$> option auto (long "network-magic" <> short 'n' <> help "Cardano network magic. If none is specified, mainnet addresses are generated.")
+    in p <|> pure C.Mainnet
+
+commandParser :: Parser Command
+commandParser = hsubparser $ mconcat [scriptsParser, transactionsParser]
+
+scriptsParser :: Mod CommandFields Command
+scriptsParser =
+    command "scripts" $
+    info
+        (Scripts <$> flag FullyAppliedValidators UnappliedValidators (long "unapplied-validators" <> short 'u' <> help "Write the unapplied validator scripts" <> showDefault))
+        (fullDesc <> progDesc "Write fully applied validator scripts")
+
+transactionsParser :: Mod CommandFields Command
+transactionsParser =
+    command "transactions" $
+    info
+        (Transactions <$> networkIdParser <*> protocolParamsParser)
+        (fullDesc <> progDesc "Write partial transactions")
+
+progParser :: ParserInfo ScriptsConfig
+progParser =
+    let p = ScriptsConfig <$> pathParser <*> commandParser
+    in info
+        (p <**> helper)
+        (fullDesc
+        <> progDesc "Run a number of emulator traces and write all validator scripts and/or partial transactions to SCRIPT_PATH"
+        <> header "plutus-use-cases-scripts - extract validators and partial transactions from emulator traces"
+        )
 
 main :: IO ()
-main = do
-    args <- getArgs
-    case args of
-        [script_path] -> writeScripts script_path
-        _             -> traverse_ putStrLn [
-            "usage: plutus-use-cases-scripts SCRIPT_PATH",
-            "Run a number of emulator traces and write all fully applied validator scripts to SCRIPT_PATH"
-            ]
+main = execParser progParser >>= writeScripts
 
-writeScripts :: FilePath -> IO ()
-writeScripts fp = do
-    putStrLn $ "Writing scripts to: " <> fp
-    traverse_ (uncurry (writeScriptsTo fp))
-        [ ("crowdfunding-success", Crowdfunding.successfulCampaign)
-        , ("currency", Currency.currencyTrace)
-        , ("escrow-redeem_1", Escrow.redeemTrace)
-        , ("escrow-redeem_2", Escrow.redeem2Trace)
-        , ("escrow-refund", Escrow.refundTrace)
-        , ("future-increase-margin", Future.increaseMarginTrace)
-        , ("future-settle-early", Future.settleEarlyTrace)
-        , ("future-pay-out", Future.payOutTrace)
-        , ("game-guess", Game.guessTrace)
-        , ("game-guessWrong", Game.guessWrongTrace)
-        , ("game-sm-success", GameStateMachine.successTrace)
-        , ("game-sm-success_2", GameStateMachine.successTrace2)
-        , ("multisig-success", MultiSig.succeedingTrace)
-        , ("multisig-failure", MultiSig.failingTrace)
-        , ("multisig-sm", MultiSigStateMachine.lockProposeSignPay 3 2)
-        , ("ping-pong", PingPong.pingPongTrace)
-        , ("ping-pong_2", PingPong.twoPartiesTrace)
-        , ("prism", Prism.prismTrace)
-        , ("pubkey", PubKey.pubKeyTrace)
-        , ("stablecoin_1", Stablecoin.stablecoinTrace)
-        , ("stablecoin_2", Stablecoin.maxReservesExceededTrace)
-        , ("token-account", TokenAccount.tokenAccountTrace)
-        , ("vesting", Vesting.retrieveFundsTrace)
-        , ("auction_1", Auction.auctionTrace1)
-        , ("auction_2", Auction.auctionTrace2)
+writeScripts :: ScriptsConfig -> IO ()
+writeScripts config = do
+    putStrLn $ "Writing " <> writeWhat (scCommand config) <> " to: " <> scPath config
+    (Sum size, exBudget) <- foldMap (uncurry3 (writeScriptsTo config))
+        [ -- TODO: The revert of input-output-hk/cardano-node#3206 prevents us from using traces
+          --       for the auction contract for now. Uncomment the following code whenever we
+          --       have a proper implementation.
+          --  ("auction_1", Auction.auctionTrace1, Auction.auctionEmulatorCfg)
+          --, ("auction_2", Auction.auctionTrace2, Auction.auctionEmulatorCfg)
+          ("crowdfunding-success", Crowdfunding.successfulCampaign, def)
+        , ("currency", Currency.currencyTrace, def)
+        , ("escrow-redeem_1", Escrow.redeemTrace, def)
+        , ("escrow-redeem_2", Escrow.redeem2Trace, def)
+        , ("escrow-refund", Escrow.refundTrace, def)
+        , ("future-increase-margin", Future.increaseMarginTrace, def)
+        , ("future-settle-early", Future.settleEarlyTrace, def)
+        , ("future-pay-out", Future.payOutTrace, def)
+        , ("game-sm-success_1", GameStateMachine.successTrace, def)
+        , ("game-sm-success_2", GameStateMachine.successTrace2, def)
+        , ("multisig-success", MultiSig.succeedingTrace, def)
+        , ("multisig-failure", MultiSig.failingTrace, def)
+        , ("multisig-sm", MultiSigStateMachine.lockProposeSignPay 3 2, def)
+        , ("ping-pong_1", PingPong.pingPongTrace, def)
+        , ("ping-pong_2", PingPong.twoPartiesTrace, def)
+        , ("prism", Prism.prismTrace, def)
+        , ("pubkey", PubKey.pubKeyTrace, def)
+        , ("stablecoin_1", Stablecoin.stablecoinTrace, def)
+        , ("stablecoin_2", Stablecoin.maxReservesExceededTrace, def)
+        , ("token-account", TokenAccount.tokenAccountTrace, def)
+        , ("vesting", Vesting.retrieveFundsTrace, def)
+        , ("uniswap", Uniswap.uniswapTrace, def)
         ]
+    if size > 0 then
+        putStrLn $ "Total " <> showStats size exBudget
+    else pure ()
 
-{-| Run an emulator trace and write the applied scripts to a file in Flat format
-    using the name as a prefix.  There's an instance of Codec.Serialise for
-    Script in Scripts.hs (see Note [Using Flat inside CBOR instance of Script]),
-    which wraps Flat-encoded bytestings in CBOR, but that's not used here: we
-    just use unwrapped Flat because that's more convenient for use with the
-    `plc` command, for example.
--}
-writeScriptsTo :: FilePath -> String -> EmulatorTrace a -> IO ()
-writeScriptsTo fp prefix trace = do
-    let events =
-            S.fst'
-            $ run
-            $ foldEmulatorStreamM (L.generalize Folds.scriptEvents)
-            $ Trace.runEmulatorStream def trace
-        writeScript idx script = do
-            let filename = fp </> prefix <> "-" <> show idx <> ".flat"
-            putStrLn $ "Writing script: " <> filename
-            BSL.writeFile filename (BSL.fromStrict . flat . unScript $ script)
-    createDirectoryIfMissing True fp
-    traverse_ (uncurry writeScript) (zip [1::Int ..] (sveScript <$> events))
+-- | `uncurry3` converts a curried function to a function on triples.
+uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
+uncurry3 f (a, b, c) = f a b c

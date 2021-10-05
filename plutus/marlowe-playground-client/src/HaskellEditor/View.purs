@@ -4,6 +4,7 @@ import Prelude hiding (div)
 import BottomPanel.Types (Action(..)) as BottomPanel
 import BottomPanel.View (render) as BottomPanel
 import Data.Array as Array
+import Data.Bifunctor (bimap)
 import Data.Either (Either(..))
 import Data.Enum (toEnum, upFromIncluding)
 import Data.Lens (_Right, has, to, view, (^.))
@@ -13,17 +14,19 @@ import Data.String as String
 import Effect.Aff.Class (class MonadAff)
 import Halogen (ClassName(..), ComponentHTML)
 import Halogen.Classes (bgWhite, flex, flexCol, flexGrow, fullHeight, group, maxH70p, minH0, overflowHidden, paddingX, spaceBottom)
+import Halogen.Css (classNames)
 import Halogen.Extra (renderSubmodule)
 import Halogen.HTML (HTML, button, code_, div, div_, option, pre_, section, section_, select, slot, text)
 import Halogen.HTML.Events (onClick, onSelectedIndexChange)
 import Halogen.HTML.Properties (class_, classes, enabled)
 import Halogen.HTML.Properties as HTML
 import Halogen.Monaco (monacoComponent)
-import HaskellEditor.Types (Action(..), BottomPanelView(..), State, _bottomPanelState, _compilationResult, _haskellEditorKeybindings)
+import HaskellEditor.Types (Action(..), BottomPanelView(..), State, _bottomPanelState, _compilationResult, _haskellEditorKeybindings, _metadataHintInfo)
 import Language.Haskell.Interpreter (CompilationError(..), InterpreterError(..), InterpreterResult(..))
 import Language.Haskell.Monaco as HM
 import MainFrame.Types (ChildSlots, _haskellEditorSlot)
 import Marlowe.Extended.Metadata (MetaData)
+import MetadataTab.View (metadataView)
 import Network.RemoteData (RemoteData(..), _Success)
 import StaticAnalysis.BottomPanel (analysisResultPane, analyzeButton, clearButton)
 import StaticAnalysis.Types (_analysisExecutionState, _analysisState, isCloseAnalysisLoading, isNoneAsked, isReachabilityLoading, isStaticLoading)
@@ -48,12 +51,16 @@ render metadata state =
     ]
   where
   panelTitles =
-    [ { title: "Generated code", view: GeneratedOutputView, classes: [] }
+    [ { title: "Metadata", view: MetadataView, classes: [] }
+    , { title: "Generated code", view: GeneratedOutputView, classes: [] }
     , { title: "Static Analysis", view: StaticAnalysisView, classes: [] }
     , { title: "Errors", view: ErrorsView, classes: [] }
     ]
 
-  wrapBottomPanelContents panelView = BottomPanel.PanelAction <$> panelContents state metadata panelView
+  -- TODO: improve this wrapper helper
+  actionWrapper = BottomPanel.PanelAction
+
+  wrapBottomPanelContents panelView = bimap (map actionWrapper) actionWrapper $ panelContents state metadata panelView
 
 otherActions :: forall p. State -> HTML p Action
 otherActions state =
@@ -71,7 +78,6 @@ editorOptions state =
   div [ class_ (ClassName "editor-options") ]
     [ select
         [ HTML.id_ "editor-options"
-        , class_ (ClassName "dropdown-header")
         , HTML.value $ show $ state ^. _haskellEditorKeybindings
         , onSelectedIndexChange (\idx -> ChangeKeyBindings <$> toEnum idx)
         ]
@@ -125,6 +131,7 @@ sendToSimulationButton state =
   button
     [ onClick $ const $ Just SendResultToSimulator
     , enabled enabled'
+    , classNames [ "btn" ]
     ]
     [ text "Send To Simulator" ]
   where
@@ -134,7 +141,7 @@ sendToSimulationButton state =
     Success (Right (InterpreterResult _)) -> true
     _ -> false
 
-panelContents :: forall p. State -> MetaData -> BottomPanelView -> HTML p Action
+panelContents :: forall m. MonadAff m => State -> MetaData -> BottomPanelView -> ComponentHTML Action ChildSlots m
 panelContents state _ GeneratedOutputView =
   section_ case view _compilationResult state of
     Success (Right (InterpreterResult result)) ->
@@ -177,6 +184,8 @@ panelContents state _ ErrorsView =
     Success (Left (TimeoutError error)) -> [ text error ]
     Success (Left (CompilationErrors errors)) -> map compilationErrorPane errors
     _ -> [ text "No errors" ]
+
+panelContents state metadata MetadataView = metadataView (state ^. _metadataHintInfo) metadata MetadataAction
 
 compilationErrorPane :: forall p. CompilationError -> HTML p Action
 compilationErrorPane (RawError error) = div_ [ text error ]

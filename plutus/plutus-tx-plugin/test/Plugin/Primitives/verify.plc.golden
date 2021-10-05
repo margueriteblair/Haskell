@@ -11,39 +11,51 @@
     )
     (termbind
       (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
+    )
+    (termbind
+      (strict)
       (vardecl
         verifySignature
-        (fun (con bytestring) (fun (con bytestring) (fun (con bytestring) Bool)))
+        (fun
+          (con bytestring)
+          (fun (con bytestring) (fun (con bytestring) (con bool)))
+        )
+      )
+      (builtin verifySignature)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        verifySignature
+        (fun
+          (con bytestring) (fun (con bytestring) (fun (con bytestring) Bool))
+        )
       )
       (lam
-        arg
+        pubKey
         (con bytestring)
         (lam
-          arg
+          message
           (con bytestring)
           (lam
-            arg
+            signature
             (con bytestring)
             [
-              (lam
-                b
-                (con bool)
-                [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-              )
-              [ [ [ (builtin verifySignature) arg ] arg ] arg ]
+              [
+                [
+                  { ifThenElse Bool }
+                  [ [ [ verifySignature pubKey ] message ] signature ]
+                ]
+                True
+              ]
+              False
             ]
           )
         )
       )
     )
-    (lam
-      ds
-      (con bytestring)
-      (lam
-        ds
-        (con bytestring)
-        (lam ds (con bytestring) [ [ [ verifySignature ds ] ds ] ds ])
-      )
-    )
+    verifySignature
   )
 )

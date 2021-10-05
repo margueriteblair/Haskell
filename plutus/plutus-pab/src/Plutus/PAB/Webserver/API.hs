@@ -8,27 +8,20 @@ module Plutus.PAB.Webserver.API
     ( API
     , WSAPI
     , WalletProxy
-    -- * New API that will eventually replace 'API'
-    , NewAPI
+    , SwaggerAPI
     ) where
 
-import qualified Cardano.Wallet.API         as Wallet
+import qualified Cardano.Wallet.Mock.API    as Wallet
 import qualified Data.Aeson                 as JSON
 import           Data.Text                  (Text)
 import           Plutus.PAB.Webserver.Types (ContractActivationArgs, ContractInstanceClientState,
                                              ContractSignatureResponse, FullReport)
-import           Servant.API                (Capture, Get, JSON, Post, ReqBody, (:<|>), (:>))
+import           Servant.API                (Capture, Description, Get, JSON, Post, Put, ReqBody, (:<|>), (:>))
 import           Servant.API.WebSocket      (WebSocketPending)
-import           Wallet.Types               (ContractInstanceId, NotificationError)
+import           Servant.Swagger.UI         (SwaggerSchemaUI)
+import           Wallet.Types               (ContractInstanceId)
 
 type WalletProxy walletId = "wallet" :> (Wallet.API walletId)
-
-type API t
-     = "api" :> ("healthcheck" :> Get '[ JSON] ()
-                 :<|> "full-report" :> Get '[ JSON] (FullReport t)
-                 :<|> "contract" :> ("activate" :> ReqBody '[ JSON] t :> Post '[ JSON] ContractInstanceId
-                                     :<|> Capture "contract-instance-id" Text :> ("schema" :> Get '[ JSON] (ContractSignatureResponse t)
-                                                                                  :<|> "endpoint" :> Capture "endpoint-name" String :> ReqBody '[ JSON] JSON.Value :> Post '[JSON] (Maybe NotificationError))))
 
 type WSAPI =
     "ws" :>
@@ -36,19 +29,24 @@ type WSAPI =
         :<|> WebSocketPending -- Combined websocket (subscription protocol)
         )
 
--- | PAB client API for contracts of type @t@. Examples of @t@ are
---   * Contract executables that reside in the user's file system
+-- | PAB client API for contracts of type @t@. An example of @t@ are
 --   * "Builtin" contracts that run in the same process as the PAB (ie. the PAB is compiled & distributed with these contracts)
-type NewAPI t walletId -- see note [WalletID type in wallet API]
-    = "api" :> "new" :> "contract" :>
-        ("activate" :> ReqBody '[ JSON] (ContractActivationArgs t) :> Post '[JSON] ContractInstanceId -- start a new instance
+type API t walletId -- see note [WalletID type in wallet API]
+    = "api" :> ("healthcheck" :> Description "Is the server alive?" :> Get '[JSON] ()
+    :<|> ("fullreport" :> Description "Details of the contracts: the signatures and their states." :> Get '[JSON] (FullReport t))
+    :<|> "contract" :> ("activate" :> ReqBody '[JSON] (ContractActivationArgs t) :> Description "Start a new instance." :> Post '[JSON] ContractInstanceId
             :<|> "instance" :>
                     (Capture "contract-instance-id" Text :>
-                        ( "status" :> Get '[JSON] (ContractInstanceClientState) -- Current status of contract instance
-                        :<|> "endpoint" :> Capture "endpoint-name" String :> ReqBody '[JSON] JSON.Value :> Post '[JSON] () -- Call an endpoint. Make
+                        (    "status"   :> Description "Current status of contract instance." :> Get '[JSON] (ContractInstanceClientState t)
+                        :<|> "schema"   :> Description "Endpoints' schema of contract instance." :> Get '[JSON] (ContractSignatureResponse t)
+                        :<|> "endpoint" :> Capture "endpoint-name" String :> ReqBody '[JSON] JSON.Value :> Description "Call an endpoint." :> Post '[JSON] ()
+                        :<|> "stop"     :> Description "Terminate the instance." :> Put '[JSON] ()
                         )
                     )
-            :<|> "instances" :> "wallet" :> Capture "wallet-id" walletId :> Get '[JSON] [ContractInstanceClientState]
-            :<|> "instances" :> Get '[ JSON] [ContractInstanceClientState] -- list of all active contract instances
-            :<|> "definitions" :> Get '[JSON] [ContractSignatureResponse t] -- list of available contracts
+            :<|> "instances" :> "wallet" :> Capture "wallet-id" walletId :> Description "List of all active contract instances for the wallet." :>  Get '[JSON] [ContractInstanceClientState t]
+            :<|> "instances" :> Description "List of all active contract instances." :> Get '[JSON] [ContractInstanceClientState t]
+            :<|> "definitions" :> Description "list of available contracts." :> Get '[JSON] [ContractSignatureResponse t]
         )
+      )
+
+type SwaggerAPI = "swagger" :> SwaggerSchemaUI "swagger-ui" "swagger.json"

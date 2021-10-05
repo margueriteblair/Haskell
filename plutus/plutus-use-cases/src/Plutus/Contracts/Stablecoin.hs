@@ -1,17 +1,17 @@
-{-# LANGUAGE DataKinds          #-}
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia        #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE MonoLocalBinds     #-}
-{-# LANGUAGE NamedFieldPuns     #-}
-{-# LANGUAGE NoImplicitPrelude  #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE TemplateHaskell    #-}
-{-# LANGUAGE TypeApplications   #-}
-{-# LANGUAGE TypeOperators      #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE DerivingVia       #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE MonoLocalBinds    #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeOperators     #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {- Stablecoin backed by a cryptocurrency.
 
 = Concept
@@ -48,7 +48,7 @@ negative number of them.
 An oracle value with the current exchange rate of the base currency has to be
 provided with every transition.
 
-The two coins (stablecoin and reservecoin) are Plutus native token whose forging
+The two coins (stablecoin and reservecoin) are Plutus native token whose minting
 policy is the forwarding policy for the stablecoin's state machine.
 
 We use the 'Ratio' type for all calculations in the script, using 'round' to
@@ -56,53 +56,52 @@ obtain 'Integer' values at the very end.
 
 -}
 module Plutus.Contracts.Stablecoin(
-    SC(..)
-    , RC(..)
-    , BC(..)
-    , PC(..)
-    , BankState(..)
-    , Stablecoin(..)
-    , Input(..)
-    , SCAction(..)
-    , ConversionRate
-    -- * State machine client
-    , scriptInstance
-    , machineClient
-    , step
-    -- * Contract using the state machine
-    , contract
-    , StablecoinError
-    , StablecoinSchema
-    -- * Etc.
-    , stableCoins
-    , reserveCoins
-    , checkValidState
-    ) where
+  SC(..)
+  , RC(..)
+  , BC(..)
+  , PC(..)
+  , BankState(..)
+  , Stablecoin(..)
+  , Input(..)
+  , SCAction(..)
+  , ConversionRate
+  -- * State machine client
+  , typedValidator
+  , machineClient
+  , step
+  -- * Contract using the state machine
+  , contract
+  , StablecoinError
+  , StablecoinSchema
+  -- * Etc.
+  , stableCoins
+  , reserveCoins
+  , checkValidState
+  ) where
 
-import           Control.Monad                   (forever, guard)
-import           Data.Aeson                      (FromJSON, ToJSON)
-import           Data.Functor.Identity           (Identity (..))
-import           GHC.Generics                    (Generic)
-import           Ledger.Constraints              (TxConstraints)
-import qualified Ledger.Constraints              as Constraints
-import           Ledger.Crypto                   (PubKey)
-import qualified Ledger.Interval                 as Interval
+import           Control.Lens                 (makeClassyPrisms)
+import           Control.Monad                (forever, guard)
+import           Data.Aeson                   (FromJSON, ToJSON)
+import           Data.Functor.Identity        (Identity (..))
+import           GHC.Generics                 (Generic)
+import           Ledger.Constraints           (TxConstraints)
+import qualified Ledger.Constraints           as Constraints
+import           Ledger.Crypto                (PubKey)
+import qualified Ledger.Interval              as Interval
 import           Ledger.Oracle
-import           Ledger.Scripts                  (MonetaryPolicyHash, monetaryPolicyHash)
-import           Ledger.Typed.Scripts            (scriptHash)
-import qualified Ledger.Typed.Scripts            as Scripts
-import           Ledger.Typed.Scripts.Validators (forwardingMPS)
-import           Ledger.Typed.Tx                 (TypedScriptTxOut (..))
-import           Ledger.Value                    (CurrencySymbol, TokenName, Value)
-import qualified Ledger.Value                    as Value
+import           Ledger.Scripts               (MintingPolicyHash)
+import qualified Ledger.Typed.Scripts         as Scripts
+import           Ledger.Typed.Tx              (TypedScriptTxOut (..))
+import           Ledger.Value                 (AssetClass, TokenName, Value)
+import qualified Ledger.Value                 as Value
 import           Plutus.Contract
-import           Plutus.Contract.StateMachine    (SMContractError, State (..), StateMachine, StateMachineClient (..),
-                                                  StateMachineInstance (..), Void)
-import qualified Plutus.Contract.StateMachine    as StateMachine
-import qualified PlutusTx                        as PlutusTx
+import           Plutus.Contract.StateMachine (AsSMContractError, OnChainState (..), SMContractError, State (..),
+                                               StateMachine, StateMachineClient (..), Void)
+import qualified Plutus.Contract.StateMachine as SM
+import qualified PlutusTx
 import           PlutusTx.Prelude
-import           PlutusTx.Ratio                  as R
-import qualified Prelude                         as Haskell
+import           PlutusTx.Ratio               as R
+import qualified Prelude                      as Haskell
 
 -- | Conversion rate from peg currency (eg. USD) to base currency (eg. Ada)
 type ConversionRate = Ratio Integer
@@ -146,19 +145,19 @@ data BankState =
         { bsReserves            :: BC Integer -- ^ Value of the bank's reserves in base currency
         , bsStablecoins         :: SC Integer -- ^ Amount of stablecoins in circulation
         , bsReservecoins        :: RC Integer -- ^ Amount of reservecoins currently in circulation
-        , bsForgingPolicyScript :: MonetaryPolicyHash -- ^ Hash of the forging policy that forwards all checks to the state machine. (This has to be in this type, rather than in 'Stablecoin', to avoid a circular dependency on the script's hash)
+        , bsMintingPolicyScript :: MintingPolicyHash -- ^ Hash of the minting policy that forwards all checks to the state machine. (This has to be in this type, rather than in 'Stablecoin', to avoid a circular dependency on the script's hash)
         }
     deriving stock (Generic, Haskell.Eq, Haskell.Show)
     deriving anyclass (ToJSON, FromJSON)
 
 -- | Initialise the 'BankState' with zero deposits.
 initialState :: StateMachineClient BankState Input -> BankState
-initialState StateMachineClient{scInstance=StateMachineInstance{validatorInstance}} =
+initialState StateMachineClient{scInstance=SM.StateMachineInstance{SM.typedValidator}} =
     BankState
         { bsReserves = 0
         , bsStablecoins = 0
         , bsReservecoins = 0
-        , bsForgingPolicyScript = monetaryPolicyHash $ forwardingMPS $ scriptHash validatorInstance
+        , bsMintingPolicyScript = Scripts.forwardingMintingPolicyHash typedValidator
         }
 
 {-# INLINEABLE convert #-}
@@ -197,7 +196,7 @@ data Stablecoin =
         , scMinReserveRatio         :: Ratio Integer -- ^ The minimum ratio of reserves to liabilities
         , scMaxReserveRatio         :: Ratio Integer -- ^ The maximum ratio of reserves to liabilities
         , scReservecoinDefaultPrice :: BC Integer -- ^ The price of a single reservecoin if no reservecoins have been issued
-        , scBaseCurrency            :: (CurrencySymbol, TokenName) -- ^ The base currency. Value of this currency will be locked by the stablecoin state machine instance
+        , scBaseCurrency            :: AssetClass -- ^ The asset class of the base currency. Value of this currency will be locked by the stablecoin state machine instance
         , scStablecoinTokenName     :: TokenName -- ^ 'TokenName' of the stablecoin
         , scReservecoinTokenName    :: TokenName -- ^ 'TokenName' of the reservecoin
         }
@@ -255,9 +254,9 @@ data SCAction
 calcFees :: Stablecoin -> BankState -> ConversionRate -> SCAction -> BC (Ratio Integer)
 calcFees sc@Stablecoin{scFee} bs conversionRate = \case
     MintStablecoin (SC i) ->
-        stablecoinNominalPrice bs conversionRate * (BC scFee) * (BC $ abs $ fromInteger i)
+        stablecoinNominalPrice bs conversionRate * BC scFee * (BC $ abs $ fromInteger i)
     MintReserveCoin (RC i) ->
-        reservecoinNominalPrice sc bs conversionRate * (BC scFee) * (BC $ abs $ fromInteger i)
+        reservecoinNominalPrice sc bs conversionRate * BC scFee * (BC $ abs $ fromInteger i)
 
 -- | Input to the stablecoin state machine
 data Input =
@@ -272,8 +271,8 @@ data Input =
 -- | The 'Value' containing the bank's reserve in base currency. This is
 --   the 'Value' locked by the state machine output with that state.
 bankReservesValue :: Stablecoin -> BankState -> Value
-bankReservesValue Stablecoin{scBaseCurrency=(s, n)} BankState{bsReserves = BC i} =
-    Value.singleton s n i
+bankReservesValue Stablecoin{scBaseCurrency} BankState{bsReserves = BC i} =
+    Value.assetClassValue scBaseCurrency i
 
 {-# INLINEABLE transition #-}
 transition :: Stablecoin -> State BankState -> Input -> Maybe (TxConstraints Void Void, State BankState)
@@ -286,8 +285,8 @@ transition sc State{stateData=oldState} input =
 --   new state and tx constraints, without checking whether the new state
 --   is valid.
 applyInput :: forall i o. Stablecoin -> BankState -> Input -> Maybe (TxConstraints i o, BankState)
-applyInput sc@Stablecoin{scOracle,scStablecoinTokenName,scReservecoinTokenName} bs@BankState{bsForgingPolicyScript} Input{inpSCAction, inpConversionRate} = do
-    (Observation{obsValue=rate, obsSlot}, constraints) <- either (const Nothing) pure (verifySignedMessageConstraints scOracle inpConversionRate)
+applyInput sc@Stablecoin{scOracle,scStablecoinTokenName,scReservecoinTokenName} bs@BankState{bsMintingPolicyScript} Input{inpSCAction, inpConversionRate} = do
+    (Observation{obsValue=rate, obsTime}, constraints) <- either (const Nothing) pure (verifySignedMessageConstraints scOracle inpConversionRate)
     let fees = calcFees sc bs rate inpSCAction
         (newState, newConstraints) = case inpSCAction of
             MintStablecoin sc' ->
@@ -295,14 +294,14 @@ applyInput sc@Stablecoin{scOracle,scStablecoinTokenName,scReservecoinTokenName} 
                 (bs
                 { bsStablecoins = bsStablecoins bs + sc'
                 , bsReserves = bsReserves bs + fmap round (fees + scValue)
-                }, Constraints.mustForgeCurrency bsForgingPolicyScript scStablecoinTokenName (unSC sc'))
+                }, Constraints.mustMintCurrency bsMintingPolicyScript scStablecoinTokenName (unSC sc'))
             MintReserveCoin rc ->
                 let rcValue = reservecoinNominalPrice sc bs rate * (BC $ fromInteger $ unRC rc) in
                 (bs
                 { bsReservecoins = bsReservecoins bs + rc
                 , bsReserves = bsReserves bs + fmap round (fees + rcValue)
-                }, Constraints.mustForgeCurrency bsForgingPolicyScript scReservecoinTokenName (unRC rc))
-    let dateConstraints = Constraints.mustValidateIn $ Interval.from obsSlot
+                }, Constraints.mustMintCurrency bsMintingPolicyScript scReservecoinTokenName (unRC rc))
+    let dateConstraints = Constraints.mustValidateIn $ Interval.from obsTime
     pure (constraints <> newConstraints <> dateConstraints, newState)
 
 {-# INLINEABLE step #-}
@@ -316,13 +315,13 @@ step sc@Stablecoin{scOracle} bs i@Input{inpConversionRate} = do
 -- | A 'Value' with the given number of reservecoins
 reserveCoins :: Stablecoin -> RC Integer -> Value
 reserveCoins sc@Stablecoin{scReservecoinTokenName} =
-    let sym = Scripts.monetaryPolicyHash $ scriptInstance sc
+    let sym = Scripts.forwardingMintingPolicyHash $ typedValidator sc
     in Value.singleton (Value.mpsSymbol sym) scReservecoinTokenName . unRC
 
 -- | A 'Value' with the given number of stablecoins
 stableCoins :: Stablecoin -> SC Integer -> Value
 stableCoins sc@Stablecoin{scStablecoinTokenName} =
-    let sym = Scripts.monetaryPolicyHash $ scriptInstance sc
+    let sym = Scripts.forwardingMintingPolicyHash $ typedValidator sc
     in Value.singleton (Value.mpsSymbol sym) scStablecoinTokenName . unSC
 
 {-# INLINEABLE isValidState #-}
@@ -356,32 +355,31 @@ data InvalidStateReason
     | MaxReserves { allowed :: BC (Ratio Integer), actual :: BC (Ratio Integer)  }
     | NegativeLiabilities
     | NegativeEquity
-    deriving (Show)
+    deriving (Haskell.Show)
 
 stablecoinStateMachine :: Stablecoin -> StateMachine BankState Input
-stablecoinStateMachine sc = StateMachine.mkStateMachine (transition sc) isFinal
+stablecoinStateMachine sc = SM.mkStateMachine Nothing (transition sc) isFinal
     -- the state machine never stops (OK for the prototype but we probably need
     -- to add a final state to the real thing)
     where isFinal _ = False
 
-scriptInstance :: Stablecoin -> Scripts.ScriptInstance (StateMachine BankState Input)
-scriptInstance stablecoin =
+typedValidator :: Stablecoin -> Scripts.TypedValidator (StateMachine BankState Input)
+typedValidator stablecoin =
     let val = $$(PlutusTx.compile [|| validator ||]) `PlutusTx.applyCode` PlutusTx.liftCode stablecoin
-        validator d = StateMachine.mkValidator (stablecoinStateMachine d)
+        validator d = SM.mkValidator (stablecoinStateMachine d)
         wrap = Scripts.wrapValidator @BankState @Input
-    in Scripts.validator @(StateMachine BankState Input) val $$(PlutusTx.compile [|| wrap ||])
+    in Scripts.mkTypedValidator @(StateMachine BankState Input) val $$(PlutusTx.compile [|| wrap ||])
 
 machineClient ::
-    Scripts.ScriptInstance (StateMachine BankState Input)
+    Scripts.TypedValidator (StateMachine BankState Input)
     -> Stablecoin
     -> StateMachineClient BankState Input
 machineClient inst stablecoin =
     let machine = stablecoinStateMachine stablecoin
-    in StateMachine.mkStateMachineClient (StateMachineInstance machine inst)
+    in SM.mkStateMachineClient (SM.StateMachineInstance machine inst)
 
 type StablecoinSchema =
-    BlockchainActions
-        .\/ Endpoint "run step" Input
+        Endpoint "run step" Input
         .\/ Endpoint "initialise" Stablecoin
 
 data StablecoinError =
@@ -391,37 +389,43 @@ data StablecoinError =
     deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
+makeClassyPrisms ''StablecoinError
+
+instance AsContractError StablecoinError where
+    _ContractError = _InitialiseEPError . _ContractError
+
+instance AsSMContractError StablecoinError where
+    _SMContractError = _StateMachineError . SM._SMContractError
+
 -- | A 'Contract' that initialises the state machine and then accepts 'Input'
 --   transitions.
-contract :: Contract () StablecoinSchema StablecoinError ()
-contract = do
-    sc <- mapError InitialiseEPError $ endpoint @"initialise"
-    let theClient = machineClient (scriptInstance sc) sc
-    _ <- mapError StateMachineError $ StateMachine.runInitialise theClient (initialState theClient) mempty
-    forever $ do
-        i <- mapError RunStepError (endpoint @"run step")
+contract :: Promise () StablecoinSchema StablecoinError ()
+contract = endpoint @"initialise" $ \sc -> do
+    let theClient = machineClient (typedValidator sc) sc
+    _ <- SM.runInitialise theClient (initialState theClient) mempty
+    forever $ awaitPromise $ endpoint @"run step" $ \i -> do
         checkTransition theClient sc i
-        mapError StateMachineError $ StateMachine.runStep theClient i
+        SM.runStep theClient i
 
 -- | Apply 'checkValidState' to the states before and after a transition
 --   and log a warning if something isn't right.
 checkTransition :: StateMachineClient BankState Input -> Stablecoin -> Input -> Contract () StablecoinSchema StablecoinError ()
 checkTransition theClient sc i@Input{inpConversionRate} = do
-        currentState <- mapError StateMachineError $ StateMachine.getOnChainState theClient
+        currentState <- mapError StateMachineError $ SM.getOnChainState theClient
         case checkHashOffChain inpConversionRate of
             Right Observation{obsValue} -> do
                 case currentState of
-                    Just ((TypedScriptTxOut{tyTxOutData}, _), _) -> do
+                    Just (OnChainState{ocsTxOut=TypedScriptTxOut{tyTxOutData}}, _) -> do
                         case checkValidState sc tyTxOutData obsValue of
-                            Right _ -> logInfo @String "Current state OK"
-                            Left w  -> logInfo $ "Current state is invalid: " <> show w <> ". The transition may still be allowed."
+                            Right _ -> logInfo @Haskell.String "Current state OK"
+                            Left w  -> logInfo $ "Current state is invalid: " <> Haskell.show w <> ". The transition may still be allowed."
                         case applyInput sc tyTxOutData i of
                             Just (_, newState) -> case checkValidState sc newState obsValue of
-                                Right _ -> logInfo @String "New state OK"
-                                Left w  -> logWarn $ "New state is invalid: " <> show w <> ". The transition is not allowed."
-                            Nothing -> logWarn @String "applyInput is Nothing (transition failed)"
-                    Nothing -> logWarn @String "Unable to find current state."
-            Left e -> logWarn $ "Unable to decode oracle value from datum: " <> show e
+                                Right _ -> logInfo @Haskell.String "New state OK"
+                                Left w  -> logWarn $ "New state is invalid: " <> Haskell.show w <> ". The transition is not allowed."
+                            Nothing -> logWarn @Haskell.String "applyInput is Nothing (transition failed)"
+                    Nothing -> logWarn @Haskell.String "Unable to find current state."
+            Left e -> logWarn $ "Unable to decode oracle value from datum: " <> Haskell.show e
 
 PlutusTx.makeLift ''SC
 PlutusTx.makeLift ''RC

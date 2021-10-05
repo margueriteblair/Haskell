@@ -8,16 +8,23 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE ViewPatterns          #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Wallet.Rollup.Render(
     showBlockchain
     , showBlockchainFold
     ) where
 
+import           Codec.Serialise.Class                 (Serialise, decode, encode)
 import           Control.Lens.Combinators              (itraverse)
 import           Control.Monad.Except                  (MonadError, throwError)
 import           Control.Monad.Reader
-import           Crypto.Hash                           (Digest, SHA256)
+import           Crypto.Hash                           (Digest, SHA256, digestFromByteString)
+import           Data.Aeson                            (FromJSON (parseJSON), ToJSON (toJSON))
+import qualified Data.Aeson                            as JSON
 import qualified Data.Aeson.Extras                     as JSON
+import qualified Data.ByteArray                        as BA
+import qualified Data.ByteString                       as BSS
 import           Data.Foldable                         (fold)
 import           Data.List                             (intersperse)
 import           Data.Map                              (Map)
@@ -29,20 +36,19 @@ import qualified Data.Text                             as Text
 import           Data.Text.Prettyprint.Doc             (Doc, Pretty, defaultLayoutOptions, fill, indent, layoutPretty,
                                                         line, parens, pretty, viaShow, vsep, (<+>))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import           Ledger                                (Address, PubKey, PubKeyHash, Signature, Tx (Tx), TxId,
-                                                        TxIn (TxIn, txInRef, txInType),
-                                                        TxInType (ConsumePublicKeyAddress, ConsumeScriptAddress),
+import           Ledger                                (Address, Blockchain, Tx (Tx), TxId, TxIn (TxIn), TxInType (..),
                                                         TxOut (TxOut), TxOutRef (TxOutRef, txOutRefId, txOutRefIdx),
-                                                        Value, txFee, txForge, txOutValue, txOutputs, txSignatures)
+                                                        Value, txFee, txMint, txOutValue, txOutputs, txSignatures)
 import           Ledger.Ada                            (Ada (Lovelace))
 import qualified Ledger.Ada                            as Ada
 import           Ledger.Scripts                        (Datum (getDatum), Script, Validator,
                                                         ValidatorHash (ValidatorHash), unValidatorScript)
 import           Ledger.Value                          (CurrencySymbol (CurrencySymbol), TokenName (TokenName))
 import qualified Ledger.Value                          as Value
-import qualified PlutusTx                              as PlutusTx
+import           Plutus.V1.Ledger.Crypto               (PubKey, PubKeyHash, Signature)
+import qualified PlutusTx
 import qualified PlutusTx.AssocMap                     as AssocMap
-import qualified PlutusTx.Builtins                     as Builtins
+import qualified PlutusTx.Prelude                      as PlutusTx
 import           Wallet.Emulator.Folds                 (EmulatorEventFold)
 import qualified Wallet.Emulator.Folds                 as Folds
 import           Wallet.Emulator.Types                 (Wallet (Wallet))
@@ -51,16 +57,16 @@ import           Wallet.Rollup.Types                   (AnnotatedTx (AnnotatedTx
                                                         BeneficialOwner (OwnedByPubKey, OwnedByScript),
                                                         DereferencedInput (DereferencedInput, InputNotFound, originalInput, refersTo),
                                                         SequenceId (SequenceId, slotIndex, txIndex), balances,
-                                                        dereferencedInputs, toBeneficialOwner, tx, txId)
+                                                        dereferencedInputs, toBeneficialOwner, tx, txId, valid)
 
 showBlockchainFold :: [(PubKeyHash, Wallet)] -> EmulatorEventFold (Either Text Text)
 showBlockchainFold walletKeys =
     let r txns =
-            (renderStrict . layoutPretty defaultLayoutOptions)
+            renderStrict . layoutPretty defaultLayoutOptions
             <$> runReaderT (render txns) (Map.fromList walletKeys)
     in fmap r Folds.annotatedBlockchain
 
-showBlockchain :: [(PubKeyHash, Wallet)] -> [[Tx]] -> Either Text Text
+showBlockchain :: [(PubKeyHash, Wallet)] -> Blockchain -> Either Text Text
 showBlockchain walletKeys blockchain =
     flip runReaderT (Map.fromList walletKeys) $ do
         annotatedBlockchain <- doAnnotateBlockchain blockchain
@@ -92,15 +98,16 @@ instance Render [[AnnotatedTx]] where
 
 instance Render AnnotatedTx where
     render AnnotatedTx { txId
-                       , tx = Tx {txOutputs, txForge, txFee, txSignatures}
+                       , tx = Tx {txOutputs, txMint, txFee, txSignatures}
                        , dereferencedInputs
                        , balances
+                       , valid = True
                        } =
         vsep <$>
         sequence
             [ heading "TxId:" txId
             , heading "Fee:" txFee
-            , heading "Forge:" txForge
+            , heading "Mint:" txMint
             , heading "Signatures" txSignatures
             , pure "Inputs:"
             , indent 2 <$> numbered "----" "Input" dereferencedInputs
@@ -111,10 +118,21 @@ instance Render AnnotatedTx where
             , pure "Balances Carried Forward:"
             , indented balances
             ]
-      where
-        heading t x = do
-            r <- indented x
-            pure $ fill 10 t <> r
+    render AnnotatedTx { txId
+                       , tx = Tx { txFee }
+                       , valid = False
+                       } =
+        vsep <$>
+        sequence
+            [ pure "Invalid transaction"
+            , heading "TxId:" txId
+            , heading "Fee:" txFee
+            ]
+
+heading :: Render a => Doc ann -> a -> ReaderT (Map PubKeyHash Wallet) (Either Text) (Doc ann)
+heading t x = do
+    r <- indented x
+    pure $ fill 10 t <> r
 
 instance Render SequenceId where
     render SequenceId {..} =
@@ -129,11 +147,14 @@ instance Render TokenName where
     render (TokenName "") = pure "Lovelace"
     render t              = pure $ pretty $ Value.toString t
 
-instance Render Builtins.ByteString where
-    render = pure . pretty . JSON.encodeByteString
+instance Render PlutusTx.BuiltinByteString where
+    render = pure . pretty . JSON.encodeByteString . PlutusTx.fromBuiltin
 
 deriving via RenderPretty PlutusTx.Data instance
          Render PlutusTx.Data
+
+instance Render PlutusTx.BuiltinData where
+    render d = render $ PlutusTx.builtinDataToData d
 
 deriving newtype instance Render Value
 
@@ -248,19 +269,21 @@ instance Render DereferencedInput where
             [render refersTo, pure "Source:", indent 2 <$> render originalInput]
 
 instance Render TxIn where
-    render TxIn {txInRef, txInType} =
+    render (TxIn txInRef (Just txInType)) =
         vsep <$> sequence [render txInRef, render txInType]
+    render (TxIn txInRef Nothing) = render txInRef
 
 instance Render TxInType where
     render (ConsumeScriptAddress validator _ _) = render validator
     render ConsumePublicKeyAddress              = pure mempty
+    render ConsumeSimpleScriptAddress           = pure mempty
 
 instance Render TxOutRef where
     render TxOutRef {txOutRefId, txOutRefIdx} =
         vsep <$>
-        sequence [heading "Tx:" txOutRefId, heading "Output #" txOutRefIdx]
+        sequence [heading' "Tx:" txOutRefId, heading' "Output #" txOutRefIdx]
       where
-        heading t x = do
+        heading' t x = do
             r <- render x
             pure $ fill 8 t <> r
 
@@ -300,3 +323,28 @@ abbreviate n t =
      in if prefix == t
             then t
             else prefix <> "..."
+
+{- Note [Serialising Digests from Crypto.Hash]
+This is more complicated than you might expect.  If you say
+`encode = encode . BA.unpack` then the contents of the digest are
+unpacked into a `Word8` list with 32 entries.  However, when cborg
+serialises a list, every element in the output is preceded by a type
+tag (in this case, 24), and this means that the serialised version is
+about 64 bytes long, twice the length of the original data.  Packing
+the `Word8` list into a `ByteString` first fixes this because cborg
+just serialises it as a sequence of contiguous bytes. -}
+
+instance Serialise (Digest SHA256) where
+    encode = encode . BSS.pack . BA.unpack
+    decode = do
+      d :: BSS.ByteString <- decode
+      let bs :: BA.Bytes = BA.pack . BSS.unpack $ d
+      case digestFromByteString bs of
+        Nothing -> fail $ "Couldn't decode SHA256 Digest: " ++ show d
+        Just v  -> pure v
+
+instance ToJSON (Digest SHA256) where
+    toJSON = JSON.String . JSON.encodeSerialise
+
+instance FromJSON (Digest SHA256) where
+    parseJSON = JSON.decodeSerialise

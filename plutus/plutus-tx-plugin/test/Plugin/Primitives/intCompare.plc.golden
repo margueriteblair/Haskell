@@ -11,24 +11,29 @@
     )
     (termbind
       (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        lessThanInteger (fun (con integer) (fun (con integer) (con bool)))
+      )
+      (builtin lessThanInteger)
+    )
+    (termbind
+      (strict)
       (vardecl lessThanInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin lessThanInteger) arg ] arg ]
-          ]
+          [ [ [ { ifThenElse Bool } [ [ lessThanInteger x ] y ] ] True ] False ]
         )
       )
     )
-    (lam ds (con integer) (lam ds (con integer) [ [ lessThanInteger ds ] ds ]))
+    lessThanInteger
   )
 )

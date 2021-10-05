@@ -11,26 +11,31 @@
     )
     (termbind
       (strict)
+      (vardecl fail (fun (all a (type) a) Bool))
+      (lam ds (all a (type) a) False)
+    )
+    (termbind
+      (strict)
+      (vardecl equalsInteger (fun (con integer) (fun (con integer) (con bool))))
+      (builtin equalsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
+    )
+    (termbind
+      (strict)
       (vardecl equalsInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin equalsInteger) arg ] arg ]
-          ]
+          [ [ [ { ifThenElse Bool } [ [ equalsInteger x ] y ] ] True ] False ]
         )
       )
-    )
-    (datatypebind
-      (datatype (tyvardecl Unit (type))  Unit_match (vardecl Unit Unit))
     )
     (lam
       ds
@@ -38,40 +43,35 @@
       (lam
         ds
         (con integer)
-        (let
-          (nonrec)
-          (termbind
-            (strict)
-            (vardecl fail (fun (all a (type) a) Bool))
-            (lam ds (all a (type) a) False)
-          )
+        {
           [
             [
-              [
-                { [ Bool_match [ [ equalsInteger ds ] ds ] ] (fun Unit Bool) }
-                (lam
-                  thunk
-                  Unit
+              {
+                [ Bool_match [ [ equalsInteger ds ] ds ] ]
+                (all dead (type) Bool)
+              }
+              (abs
+                dead
+                (type)
+                {
                   [
                     [
-                      [
-                        {
-                          [ Bool_match [ [ equalsInteger ds ] ds ] ]
-                          (fun Unit Bool)
-                        }
-                        (lam thunk Unit True)
-                      ]
-                      (lam thunk Unit [ fail (abs e (type) (error e)) ])
+                      {
+                        [ Bool_match [ [ equalsInteger ds ] ds ] ]
+                        (all dead (type) Bool)
+                      }
+                      (abs dead (type) True)
                     ]
-                    Unit
+                    (abs dead (type) [ fail (abs e (type) (error e)) ])
                   ]
-                )
-              ]
-              (lam thunk Unit [ fail (abs e (type) (error e)) ])
+                  (all dead (type) dead)
+                }
+              )
             ]
-            Unit
+            (abs dead (type) [ fail (abs e (type) (error e)) ])
           ]
-        )
+          (all dead (type) dead)
+        }
       )
     )
   )

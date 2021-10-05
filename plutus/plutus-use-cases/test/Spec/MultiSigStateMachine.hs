@@ -5,19 +5,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# OPTIONS_GHC -fno-strictness  #-}
+
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
-{-# OPTIONS -fplugin-opt PlutusTx.Plugin:debug-context #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:debug-context #-}
+
 module Spec.MultiSigStateMachine(tests, lockProposeSignPay) where
 
 import           Data.Foldable                         (traverse_)
-import           Test.Tasty                            (TestTree, testGroup)
-import qualified Test.Tasty.HUnit                      as HUnit
-
-import           Spec.Lib                              as Lib
 
 import qualified Ledger
 import qualified Ledger.Ada                            as Ada
+import           Ledger.Time                           (POSIXTime)
+import qualified Ledger.TimeSlot                       as TimeSlot
 import qualified Ledger.Typed.Scripts                  as Scripts
 import qualified Wallet.Emulator                       as EM
 
@@ -25,7 +24,10 @@ import           Plutus.Contract.Test
 import qualified Plutus.Contracts.MultiSigStateMachine as MS
 import           Plutus.Trace.Emulator                 (EmulatorTrace)
 import qualified Plutus.Trace.Emulator                 as Trace
-import qualified PlutusTx                              as PlutusTx
+import qualified PlutusTx
+
+import           Test.Tasty                            (TestTree, testGroup)
+import qualified Test.Tasty.HUnit                      as HUnit
 
 tests :: TestTree
 tests =
@@ -54,27 +56,22 @@ tests =
         .&&. walletFundsChange w2 (Ada.lovelaceValueOf 10))
         (lockProposeSignPay 3 3)
 
-    , Lib.goldenPir "test/Spec/multisigStateMachine.pir" $$(PlutusTx.compile [|| MS.mkValidator ||])
-    , HUnit.testCase "script size is reasonable" (Lib.reasonable (Scripts.validatorScript $ MS.scriptInstance params) 51000)
+    , goldenPir "test/Spec/multisigStateMachine.pir" $$(PlutusTx.compile [|| MS.mkValidator ||])
+    , HUnit.testCaseSteps "script size is reasonable" $ \step -> reasonable' step (Scripts.validatorScript $ MS.typedValidator params) 51000
     ]
-
-w1, w2, w3 :: EM.Wallet
-w1 = EM.Wallet 1
-w2 = EM.Wallet 2
-w3 = EM.Wallet 3
 
 -- | A multisig contract that requires 3 out of 5 signatures
 params :: MS.Params
 params = MS.Params keys 3 where
-    keys = Ledger.pubKeyHash . EM.walletPubKey . EM.Wallet <$> [1..5]
+    keys = Ledger.pubKeyHash . EM.walletPubKey . knownWallet <$> [1..5]
 
 -- | A payment of 5 Ada to the public key address of wallet 2
-payment :: MS.Payment
-payment =
+payment :: POSIXTime -> MS.Payment
+payment startTime =
     MS.Payment
         { MS.paymentAmount    = Ada.lovelaceValueOf 5
         , MS.paymentRecipient = Ledger.pubKeyHash $ EM.walletPubKey w2
-        , MS.paymentDeadline  = 20
+        , MS.paymentDeadline  = startTime + 20000
         }
 
 -- | Lock some funds in the contract, then propose the payment
@@ -82,17 +79,18 @@ payment =
 --   finally call @"pay"@ a number of times.
 lockProposeSignPay :: Integer -> Integer -> EmulatorTrace ()
 lockProposeSignPay signatures rounds = do
-    let wallets = EM.Wallet <$> [1..signatures]
+    let wallets = knownWallet <$> [1..signatures]
         activate w = Trace.activateContractWallet w (MS.contract @MS.MultiSigError params)
 
     -- the 'proposeSignPay' trace needs at least 2 signatures
-    handle1 <- activate (EM.Wallet 1)
-    handle2 <- activate (EM.Wallet 2)
+    handle1 <- activate w1
+    handle2 <- activate w2
     handles <- traverse activate (drop 2 wallets)
     _ <- Trace.callEndpoint @"lock" handle1 (Ada.lovelaceValueOf 10)
     _ <- Trace.waitNSlots 1
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     let proposeSignPay = do
-            Trace.callEndpoint @"propose-payment" handle2 payment
+            Trace.callEndpoint @"propose-payment" handle2 (payment startTime)
             _ <- Trace.waitNSlots 1
             -- Call @"add-signature"@ @signatures@ times
             traverse_ (\hdl -> Trace.callEndpoint @"add-signature" hdl () >> Trace.waitNSlots 1) (handle1:handle2:handles)
@@ -101,4 +99,4 @@ lockProposeSignPay signatures rounds = do
             Trace.callEndpoint @"pay" handle1 ()
             Trace.waitNSlots 1
 
-    traverse_ (\_ -> proposeSignPay) [1..rounds]
+    traverse_ (const proposeSignPay) [1..rounds]

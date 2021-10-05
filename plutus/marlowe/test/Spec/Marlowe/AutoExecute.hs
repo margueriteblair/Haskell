@@ -1,6 +1,4 @@
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE NumericUnderscores  #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -44,15 +42,15 @@ import           PlutusTx.Lattice
 import           Ledger                                hiding (Value)
 import qualified Ledger
 import           Ledger.Ada                            (lovelaceValueOf)
-import           Ledger.Typed.Scripts                  (scriptHash, validatorScript)
+import           Ledger.Typed.Scripts                  (validatorScript)
 import qualified PlutusTx.Prelude                      as P
 import           Spec.Marlowe.Common
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.QuickCheck
 
-{-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
-{-# ANN module ("HLint: ignore Redundant if" :: String) #-}
+{- HLINT ignore "Reduce duplication" -}
+{- HLINT ignore "Redundant if" -}
 
 tests :: TestTree
 tests = testGroup "Marlowe Auto Execution"
@@ -64,18 +62,21 @@ tests = testGroup "Marlowe Auto Execution"
 
 
 alice, bob, carol :: Wallet
-alice = Wallet 1
-bob = Wallet 2
-carol = Wallet 3
+alice = T.w1
+bob = T.w2
+carol = T.w3
 
+-- Leave some lovelace for fees
+almostAll :: Ledger.Value
+almostAll = defaultLovelaceAmount <> P.inv (lovelaceValueOf 50)
 
 autoexecZCBTest :: TestTree
 autoexecZCBTest = checkPredicate "ZCB Auto Execute Contract"
     (assertNoFailedTransactions
     -- /\ emulatorLog (const False) ""
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag alice) "contract should not have any errors"
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag bob) "contract should not have any errors"
-    T..&&. walletFundsChange alice (lovelaceValueOf (150))
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should not have any errors"
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should not have any errors"
+    T..&&. walletFundsChange alice (lovelaceValueOf 150)
     T..&&. walletFundsChange bob (lovelaceValueOf (-150))
     ) $ do
 
@@ -90,18 +91,18 @@ autoexecZCBTest = checkPredicate "ZCB Auto Execute Contract"
     Trace.waitNSlots 1
 
     -- Move all Alice's money to Carol, so she can't make a payment
-    Trace.payToWallet alice carol defaultLovelaceAmount
+    Trace.payToWallet alice carol almostAll
     Trace.waitNSlots 1
 
     Trace.callEndpoint @"auto" aliceHdl (params, alicePk, contractLifespan)
     Trace.waitNSlots 1
 
     -- Return money to Alice
-    Trace.payToWallet carol alice defaultLovelaceAmount
+    Trace.payToWallet carol alice almostAll
     Trace.waitNSlots 1
 
     -- Now Alice should be able to retry and pay to Bob
-    void $ Trace.waitNSlots 1
+    void $ Trace.waitNSlots 2
 
 
 autoexecZCBTestAliceWalksAway :: TestTree
@@ -109,10 +110,10 @@ autoexecZCBTestAliceWalksAway = checkPredicate
     "ZCB Auto Execute Contract when Alice walks away"
     (assertNoFailedTransactions
     -- /\ emulatorLog (const False) ""
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag alice) "contract should not have any errors"
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag bob) "contract should not have any errors"
-    T..&&. walletFundsChange alice (P.inv defaultLovelaceAmount)
-    T..&&. walletFundsChange carol defaultLovelaceAmount
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should not have any errors"
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should not have any errors"
+    T..&&. walletFundsChange alice (P.inv almostAll)
+    T..&&. walletFundsChange carol almostAll
     ) $ do
     bobHdl <- Trace.activateContractWallet bob marlowePlutusContract
     aliceHdl <- Trace.activateContractWallet alice marlowePlutusContract
@@ -125,7 +126,7 @@ autoexecZCBTestAliceWalksAway = checkPredicate
     Trace.waitNSlots 1
 
     -- Move all Alice's money to Carol, so she can't make a payment
-    Trace.payToWallet alice carol defaultLovelaceAmount
+    Trace.payToWallet alice carol almostAll
     Trace.waitNSlots 1
 
     Trace.callEndpoint @"auto" aliceHdl (params, alicePk, contractLifespan)
@@ -140,10 +141,10 @@ autoexecZCBTestBobWalksAway = checkPredicate
     "ZCB Auto Execute Contract when Bob walks away"
     (assertNoFailedTransactions
     -- /\ emulatorLog (const False) ""
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag alice) "contract should not have any errors"
-    T..&&. assertNotDone (marlowePlutusContract) (Trace.walletInstanceTag bob) "contract should not have any errors"
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should not have any errors"
+    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should not have any errors"
     T..&&. walletFundsChange alice (lovelaceValueOf (-850))
-    T..&&. walletFundsChange carol defaultLovelaceAmount
+    T..&&. walletFundsChange carol almostAll
     ) $ do
     bobHdl <- Trace.activateContractWallet bob marlowePlutusContract
     aliceHdl <- Trace.activateContractWallet alice marlowePlutusContract
@@ -155,7 +156,7 @@ autoexecZCBTestBobWalksAway = checkPredicate
     Trace.callEndpoint @"create" aliceHdl (AssocMap.empty, zeroCouponBond)
     Trace.waitNSlots 1
 
-    Trace.payToWallet bob carol defaultLovelaceAmount
+    Trace.payToWallet bob carol almostAll
     Trace.waitNSlots 1
 
     Trace.callEndpoint @"auto" aliceHdl (params, alicePk, contractLifespan)
@@ -183,8 +184,8 @@ awaitUntilTimeoutTest = checkPredicate "Party waits for contract to appear on ch
     -- here Bob gets Timeout and closes the contract
     void $ Trace.waitNSlots 15
 
-alicePk = PK $ (pubKeyHash $ walletPubKey alice)
-bobPk = PK $ (pubKeyHash $ walletPubKey bob)
+alicePk = PK (pubKeyHash $ walletPubKey alice)
+bobPk = PK (pubKeyHash $ walletPubKey bob)
 
 params = defaultMarloweParams
 

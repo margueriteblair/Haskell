@@ -2,6 +2,8 @@ module UntypedPlutusCore
     ( module Export
     , applyProgram
     , parseScoped
+    , PLC.DefaultUni
+    , PLC.DefaultFun
     ) where
 
 import           UntypedPlutusCore.Check.Uniques      as Uniques
@@ -10,7 +12,6 @@ import           UntypedPlutusCore.Rename             as Rename
 
 import           PlutusCore.Name                      as Export
 import           UntypedPlutusCore.Core               as Export
-import           UntypedPlutusCore.Core.Instance.CBOR as Export
 import           UntypedPlutusCore.Core.Instance.Flat as Export
 import           UntypedPlutusCore.DeBruijn           as Export
 import           UntypedPlutusCore.Size               as Export
@@ -23,13 +24,17 @@ import qualified PlutusCore                           as PLC
 import qualified PlutusCore.Error                     as PLC
 import           PlutusPrelude                        (through)
 
-import           Control.Monad.Except
+import           Control.Monad.Except                 (MonadError, (<=<))
 import qualified Data.ByteString.Lazy                 as BSL
 
 
--- | Take one PLC program and apply it to another.
-applyProgram :: Program name uni fun () -> Program name uni fun () -> Program name uni fun ()
-applyProgram (Program _ _ t1) (Program _ _ t2) = Program () (PLC.defaultVersion ()) (Apply () t1 t2)
+-- | Take one UPLC program and apply it to another.
+applyProgram
+    :: Monoid a
+    => Program name uni fun a
+    -> Program name uni fun a
+    -> Program name uni fun a
+applyProgram (Program a1 _ t1) (Program a2 _ t2) = Program (a1 <> a2) (PLC.defaultVersion mempty) (Apply mempty t1 t2)
 
 -- | Parse and rewrite so that names are globally unique, not just unique within
 -- their scope.

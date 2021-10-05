@@ -1,14 +1,20 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
-module PlutusTx.Ord (Ord(..), Max (..), Min (..)) where
+module PlutusTx.Ord (Ord(..), Ordering(..)) where
 
-import qualified PlutusTx.Builtins  as Builtins
-import           PlutusTx.Data
-import           PlutusTx.Eq
-import           PlutusTx.Semigroup
+{-
+We export off-chain Haskell's Ordering type as on-chain Plutus's Ordering type since they are the same.
+-}
 
-import           Prelude            hiding (Eq (..), Ord (..), Semigroup (..))
+import                          PlutusTx.Bool      (Bool (..))
+import                qualified PlutusTx.Builtins  as Builtins
+import                          PlutusTx.Either    (Either (..))
+import                          PlutusTx.Eq
+import {-# SOURCE #-}           PlutusTx.Maybe     (Maybe (..))
+import                          PlutusTx.Semigroup ((<>))
+import                          Prelude            (Ordering (..))
 
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 infix 4 <, <=, >, >=
 
@@ -47,19 +53,32 @@ class Eq a => Ord a where
     {-# INLINABLE min #-}
     min x y = if x <= y then x else y
 
-instance Ord Integer where
+instance Eq Ordering where
+    {-# INLINABLE (==) #-}
+    EQ == EQ = True
+    GT == GT = True
+    LT == LT = True
+    _ == _   = False
+
+instance Ord Builtins.Integer where
     {-# INLINABLE (<) #-}
     (<) = Builtins.lessThanInteger
     {-# INLINABLE (<=) #-}
-    (<=) = Builtins.lessThanEqInteger
+    (<=) = Builtins.lessThanEqualsInteger
     {-# INLINABLE (>) #-}
     (>) = Builtins.greaterThanInteger
     {-# INLINABLE (>=) #-}
-    (>=) = Builtins.greaterThanEqInteger
+    (>=) = Builtins.greaterThanEqualsInteger
 
-instance Ord Builtins.ByteString where
-    {-# INLINABLE compare #-}
-    compare l r = if Builtins.lessThanByteString l r then LT else if Builtins.equalsByteString l r then EQ else GT
+instance Ord Builtins.BuiltinByteString where
+    {-# INLINABLE (<) #-}
+    (<) = Builtins.lessThanByteString
+    {-# INLINABLE (<=) #-}
+    (<=) = Builtins.lessThanEqualsByteString
+    {-# INLINABLE (>) #-}
+    (>) = Builtins.greaterThanByteString
+    {-# INLINABLE (>=) #-}
+    (>=) = Builtins.greaterThanEqualsByteString
 
 instance Ord a => Ord [a] where
     {-# INLINABLE compare #-}
@@ -99,39 +118,3 @@ instance Ord () where
 instance (Ord a, Ord b) => Ord (a, b) where
     {-# INLINABLE compare #-}
     compare (a, b) (a', b') = compare a a' <> compare b b'
-
-instance Ord Data where
-    {-# INLINABLE compare #-}
-    compare (Constr i args) (Constr i' args') = compare i i' <> compare args args'
-    compare Constr{} _                        = LT
-    compare _ Constr {}                       = GT
-    compare (Map entries) (Map entries')      = compare entries entries'
-    compare Map{} _                           = LT
-    compare _ Map{}                           = GT
-    compare (List ds) (List ds')              = compare ds ds'
-    compare List{} _                          = LT
-    compare _ List{}                          = GT
-    compare (I i) (I i')                      = compare i i'
-    compare I{} _                             = LT
-    compare _ I{}                             = GT
-    compare (B b) (B b')                      = compare b b'
-
-newtype Max a = Max { getMax :: a }
-
-instance Functor Max where
-    {-# INLINABLE fmap #-}
-    fmap f (Max a) = Max (f a)
-
-instance Ord a => Semigroup (Max a) where
-    {-# INLINABLE (<>) #-}
-    (Max a1) <> (Max a2) = Max (max a1 a2)
-
-newtype Min a = Min { getMin :: a }
-
-instance Functor Min where
-    {-# INLINABLE fmap #-}
-    fmap f (Min a) = Min (f a)
-
-instance Ord a => Semigroup (Min a) where
-    {-# INLINABLE (<>) #-}
-    (Min a1) <> (Min a2) = Min (min a1 a2)

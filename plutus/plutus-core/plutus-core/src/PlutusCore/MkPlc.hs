@@ -4,6 +4,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
@@ -12,7 +13,9 @@
 module PlutusCore.MkPlc
     ( TermLike (..)
     , UniOf
+    , mkTyBuiltinOf
     , mkTyBuiltin
+    , mkConstantOf
     , mkConstant
     , VarDecl (..)
     , TyVarDecl (..)
@@ -43,13 +46,12 @@ module PlutusCore.MkPlc
     , mkIterKindArrow
     ) where
 
-import           Prelude             hiding (error)
+import           PlutusPrelude
+import           Prelude         hiding (error)
 
 import           PlutusCore.Core
-import           PlutusCore.Universe
 
-import           Data.List           (foldl')
-import           GHC.Generics        (Generic)
+import           Universe
 
 -- | A final encoding for Term, to allow PLC terms to be used transparently as PIR terms.
 class TermLike term tyname name uni fun | term -> tyname name uni fun where
@@ -69,13 +71,27 @@ class TermLike term tyname name uni fun | term -> tyname name uni fun where
     termLet = mkImmediateLamAbs
     typeLet = mkImmediateTyAbs
 
--- | Embed a type from a universe into a PLC type.
-mkTyBuiltin
-    :: forall a uni tyname ann. uni `Includes` a
-    => ann -> Type tyname uni ann
-mkTyBuiltin ann = TyBuiltin ann . Some . TypeIn $ knownUni @uni @a
+-- TODO: make it @forall {k}@ once we have that.
+-- (see https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0099-explicit-specificity.rst)
+-- | Embed a type (given its explicit type tag) into a PLC type.
+mkTyBuiltinOf :: forall k (a :: k) uni tyname ann. ann -> uni (Esc a) -> Type tyname uni ann
+mkTyBuiltinOf ann = TyBuiltin ann . SomeTypeIn
 
--- | Embed a Haskell value into a PLC term.
+-- TODO: make it @forall {k}@ once we have that.
+-- (see https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0099-explicit-specificity.rst)
+-- | Embed a type (provided it's in the universe) into a PLC type.
+mkTyBuiltin
+    :: forall k (a :: k) uni tyname ann. uni `Contains` a
+    => ann -> Type tyname uni ann
+mkTyBuiltin ann = mkTyBuiltinOf ann $ knownUni @_ @uni @a
+
+-- | Embed a Haskell value (given its explicit type tag) into a PLC term.
+mkConstantOf
+    :: forall a uni fun term tyname name ann. TermLike term tyname name uni fun
+    => ann -> uni (Esc a) -> a -> term ann
+mkConstantOf ann uni = constant ann . someValueOf uni
+
+-- | Embed a Haskell value (provided its type is in the universe) into a PLC term.
 mkConstant
     :: forall a uni fun term tyname name ann. (TermLike term tyname name uni fun, uni `Includes` a)
     => ann -> a -> term ann
@@ -106,37 +122,13 @@ embed = \case
     Unwrap a t        -> unwrap a (embed t)
     IWrap a ty1 ty2 t -> iWrap a ty1 ty2 (embed t)
 
--- | A "variable declaration", i.e. a name and a type for a variable.
-data VarDecl tyname name uni fun ann = VarDecl
-    { varDeclAnn  :: ann
-    , varDeclName :: name
-    , varDeclType :: Type tyname uni ann
-    } deriving (Functor, Show, Generic)
-
 -- | Make a 'Var' referencing the given 'VarDecl'.
 mkVar :: TermLike term tyname name uni fun => ann -> VarDecl tyname name uni fun ann -> term ann
-mkVar ann = var ann . varDeclName
-
--- | A "type variable declaration", i.e. a name and a kind for a type variable.
-data TyVarDecl tyname ann = TyVarDecl
-    { tyVarDeclAnn  :: ann
-    , tyVarDeclName :: tyname
-    , tyVarDeclKind :: Kind ann
-    } deriving (Functor, Show, Generic)
+mkVar ann = var ann . _varDeclName
 
 -- | Make a 'TyVar' referencing the given 'TyVarDecl'.
 mkTyVar :: ann -> TyVarDecl tyname ann -> Type tyname uni ann
-mkTyVar ann = TyVar ann . tyVarDeclName
-
--- | A "type declaration", i.e. a kind for a type.
-data TyDecl tyname uni ann = TyDecl
-    { tyDeclAnn  :: ann
-    , tyDeclType :: Type tyname uni ann
-    , tyDeclKind :: Kind ann
-    } deriving (Functor, Show, Generic)
-
-tyDeclVar :: TyVarDecl tyname ann -> TyDecl tyname uni ann
-tyDeclVar (TyVarDecl ann name kind) = TyDecl ann (TyVar ann name) kind
+mkTyVar ann = TyVar ann . _tyVarDeclName
 
 -- | A definition. Pretty much just a pair with more descriptive names.
 data Def var val = Def
@@ -179,7 +171,7 @@ functionDefToType (FunctionDef _ _ funTy _) = functionTypeToType funTy
 functionDefVarDecl :: FunctionDef term tyname name uni fun ann -> VarDecl tyname name uni fun ann
 functionDefVarDecl (FunctionDef ann name funTy _) = VarDecl ann name $ functionTypeToType funTy
 
--- | Make a 'FunctioDef'. Return 'Nothing' if the provided type is not functional.
+-- | Make a 'FunctionDef'. Return 'Nothing' if the provided type is not functional.
 mkFunctionDef
     :: ann
     -> name

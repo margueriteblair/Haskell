@@ -1,11 +1,10 @@
-{-# LANGUAGE DataKinds          #-}
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia        #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE NamedFieldPuns     #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE TemplateHaskell    #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DerivingVia       #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 -- | Defines a number of types that are used in Wallet.XXX modules
 module Wallet.Types(
     ContractInstanceId(..)
@@ -14,10 +13,6 @@ module Wallet.Types(
     , Notification(..)
     , EndpointDescription(..)
     , EndpointValue(..)
-    , Payment(..)
-    , emptyPayment
-    , AddressChangeRequest(..)
-    , AddressChangeResponse(..)
     -- * Error types
     , MatchingError(..)
     , AsMatchingError(..)
@@ -35,7 +30,6 @@ import           Data.Aeson                       (FromJSON, FromJSONKey, ToJSON
 import qualified Data.Aeson                       as Aeson
 import qualified Data.Aeson.Encode.Pretty         as JSON
 import qualified Data.ByteString.Lazy.Char8       as BSL8
-import qualified Data.Set                         as Set
 import           Data.String                      (IsString (..))
 import           Data.Text                        (Text)
 import qualified Data.Text                        as T
@@ -47,22 +41,11 @@ import qualified Data.UUID.V4                     as UUID
 import           GHC.Generics                     (Generic)
 import qualified Language.Haskell.TH.Syntax       as TH
 
-import           Ledger                           (Address, Slot, Tx, TxIn, TxOut, txId)
 import           Ledger.Constraints.OffChain      (MkTxError)
 import           Plutus.Contract.Checkpoint       (AsCheckpointError (..), CheckpointError)
 import           Wallet.Emulator.Error            (WalletAPIError)
 
-
--- | A payment consisting of a set of inputs to be spent, and
---   an optional change output. The size of the payment is the
---   difference between the total value of the inputs and the
---   value of the output.
-data Payment =
-    Payment
-        { paymentInputs       :: Set.Set TxIn
-        , paymentChangeOutput :: Maybe TxOut
-        } deriving stock (Eq, Show, Generic)
-          deriving anyclass (ToJSON, FromJSON)
+import qualified Data.OpenApi.Schema              as OpenApi
 
 -- | An error
 newtype MatchingError = WrongVariantError { unWrongVariantError :: Text }
@@ -124,7 +107,7 @@ instance AsCheckpointError ContractError where
 newtype ContractInstanceId = ContractInstanceId { unContractInstanceId :: UUID }
     deriving (Eq, Ord, Show, Generic)
     deriving newtype (FromJSONKey, ToJSONKey)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
     deriving Pretty via (PrettyShow UUID)
 
 -- | A pure list of all 'ContractInstanceId' values. To be used in testing.
@@ -137,7 +120,7 @@ randomID = ContractInstanceId <$> UUID.nextRandom
 newtype EndpointDescription = EndpointDescription { getEndpointDescription :: String }
     deriving stock (Eq, Ord, Generic, Show, TH.Lift)
     deriving newtype (IsString, Pretty)
-    deriving anyclass (ToJSON, FromJSON)
+    deriving anyclass (ToJSON, FromJSON, OpenApi.ToSchema)
 
 newtype EndpointValue a = EndpointValue { unEndpointValue :: a }
     deriving stock (Eq, Ord, Generic, Show)
@@ -185,43 +168,3 @@ instance Pretty NotificationError where
                     <+> pretty ep
 
 makeClassyPrisms ''NotificationError
-
--- | A payment with zero inputs and no change output
-emptyPayment :: Payment
-emptyPayment = Payment { paymentInputs = Set.empty, paymentChangeOutput = Nothing }
-
--- | Information about transactions that spend or produce an output at
---   an address in a slot.
-data AddressChangeResponse =
-    AddressChangeResponse
-        { acrAddress :: Address -- ^ The address
-        , acrSlot    :: Slot -- ^ The slot
-        , acrTxns    :: [Tx] -- ^ Transactions that were validated in the slot and spent or produced at least one output at the address.
-        }
-        deriving stock (Eq, Generic, Show)
-        deriving anyclass (ToJSON, FromJSON)
-
-instance Pretty AddressChangeResponse where
-    pretty AddressChangeResponse{acrAddress, acrTxns, acrSlot} =
-        hang 2 $ vsep
-            [ "Address:" <+> pretty acrAddress
-            , "Slot:" <+> pretty acrSlot
-            , "Tx IDs:" <+> pretty (txId <$> acrTxns)
-            ]
-
--- | Request for information about transactions that spend or produce
---   outputs at a specific address in a slot.
-data AddressChangeRequest =
-    AddressChangeRequest
-        { acreqSlot    :: Slot -- ^ The slot
-        , acreqAddress :: Address -- ^ The address
-        }
-        deriving stock (Eq, Generic, Show, Ord)
-        deriving anyclass (ToJSON, FromJSON)
-
-instance Pretty AddressChangeRequest where
-    pretty AddressChangeRequest{acreqSlot, acreqAddress} =
-        hang 2 $ vsep
-            [ "Slot:" <+> pretty acreqSlot
-            , "Address:" <+> pretty acreqAddress
-            ]

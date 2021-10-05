@@ -1,6 +1,6 @@
 {-# LANGUAGE ExplicitForAll   #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeApplications #-}
+
 module Spec.Rollup where
 
 import qualified Control.Foldl                 as L
@@ -14,7 +14,7 @@ import           Ledger                        (pubKeyHash)
 import           Plutus.Contract.Trace
 
 import           Plutus.Contracts.Crowdfunding
-import           Plutus.Contracts.Game
+import qualified Spec.GameStateMachine
 import qualified Spec.Vesting
 
 import           Plutus.Trace.Emulator         (EmulatorTrace, runEmulatorStream)
@@ -32,9 +32,9 @@ tests = testGroup "showBlockchain"
           "test/Spec/renderCrowdfunding.txt"
           (render successfulCampaign)
      , goldenVsString
-          "renders a guess scenario sensibly"
+          "renders a game guess scenario sensibly"
           "test/Spec/renderGuess.txt"
-          (render guessTrace)
+          (render Spec.GameStateMachine.successTrace)
      , goldenVsString
           "renders a vesting scenario sensibly"
           "test/Spec/renderVesting.txt"
@@ -46,10 +46,10 @@ render trace = do
     let result =
                S.fst'
                $ run
-               $ foldEmulatorStreamM (L.generalize (showBlockchainFold allWallets'))
-               $ takeUntilSlot 20
+               $ foldEmulatorStreamM (L.generalize (showBlockchainFold knownWallets'))
+               $ takeUntilSlot 21
                $ runEmulatorStream def trace
-        allWallets' = fmap (\w -> (pubKeyHash (walletPubKey w), w)) (Wallet <$> [1..10])
+        knownWallets' = fmap (\w -> (pubKeyHash (walletPubKey w), w)) knownWallets
     case result of
         Left err       -> assertFailure $ show err
         Right rendered -> pure $ LBS.fromStrict $ encodeUtf8 rendered

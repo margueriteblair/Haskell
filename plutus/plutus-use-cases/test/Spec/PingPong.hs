@@ -16,7 +16,7 @@ import           Test.Tasty
 
 theContract :: Contract () PingPongSchema PingPongError ()
 theContract = do
-    _ <- PingPong.initialise
+    _ <- awaitPromise PingPong.initialise
     PingPong.runPong
     PingPong.runPing
     PingPong.runPong
@@ -27,13 +27,9 @@ twoParties =
     -- the other party calls "stop"
     -- then the first party will learn that the instance has
     -- terminated when 'runWaitForUpdate' returns 'Nothing'.
-    let p1 = PingPong.initialise >> PingPong.runWaitForUpdate
+    let p1 = PingPong.initialise `promiseBind` \_ -> PingPong.runWaitForUpdate
         p2 = PingPong.runStop
-    in p1 `select` fmap (const Nothing) p2
-
-w1, w2 :: Wallet
-w1 = Wallet 1
-w2 = Wallet 2
+    in awaitPromise (p1 `select` fmap (const Nothing) p2)
 
 tests :: TestTree
 tests = testGroup "pingpong"

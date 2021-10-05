@@ -8,7 +8,7 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
-{-# OPTIONS -fplugin PlutusTx.Plugin -fplugin-opt PlutusTx.Plugin:defer-errors -fplugin-opt PlutusTx.Plugin:debug-context #-}
+{-# OPTIONS_GHC -fplugin PlutusTx.Plugin -fplugin-opt PlutusTx.Plugin:defer-errors -fplugin-opt PlutusTx.Plugin:debug-context #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_GHC   -g #-}
 
@@ -34,7 +34,6 @@ import qualified PlutusIR                  as PIR
 
 import qualified PlutusCore                as PLC
 import           PlutusCore.Pretty
-import qualified PlutusCore.Universe       as PLC
 import           UntypedPlutusCore
 import qualified UntypedPlutusCore         as UPLC
 
@@ -42,28 +41,32 @@ import           Control.Exception
 import           Control.Lens.Combinators  (_1)
 import           Control.Monad.Except
 
+import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc
 import           Test.Tasty
 
-runPlcCek :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => [a] -> ExceptT SomeException IO (Term PLC.Name PLC.DefaultUni PLC.DefaultFun ())
+runPlcCek :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => [a] -> ExceptT SomeException Haskell.IO (Term PLC.Name PLC.DefaultUni PLC.DefaultFun ())
 runPlcCek values = do
      ps <- Haskell.traverse toUPlc values
      let p = Haskell.foldl1 UPLC.applyProgram ps
      either (throwError . SomeException) Haskell.pure $ evaluateCek p
 
-runPlcCekTrace :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => [a] -> ExceptT SomeException IO ([String], CekExTally PLC.DefaultFun, (Term PLC.Name PLC.DefaultUni PLC.DefaultFun ()))
+runPlcCekTrace ::
+     ToUPlc a PLC.DefaultUni PLC.DefaultFun =>
+     [a] ->
+     ExceptT SomeException Haskell.IO ([Text], CekExTally PLC.DefaultFun, Term PLC.Name PLC.DefaultUni PLC.DefaultFun ())
 runPlcCekTrace values = do
      ps <- Haskell.traverse toUPlc values
      let p = Haskell.foldl1 UPLC.applyProgram ps
-     let (logOut, tally, result) = evaluateCekTrace p
+     let (logOut, TallyingSt tally _, result) = evaluateCekTrace p
      res <- either (throwError . SomeException) Haskell.pure result
      Haskell.pure (logOut, tally, res)
 
-goldenEvalCek :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => String -> [a] -> TestNested
+goldenEvalCek :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => Haskell.String -> [a] -> TestNested
 goldenEvalCek name values = nestedGoldenVsDocM name $ prettyPlcClassicDebug Haskell.<$> (rethrow $ runPlcCek values)
 
-goldenEvalCekLog :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => String -> [a] -> TestNested
-goldenEvalCekLog name values = nestedGoldenVsDocM name $ (pretty . (view _1)) Haskell.<$> (rethrow $ runPlcCekTrace values)
+goldenEvalCekLog :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => Haskell.String -> [a] -> TestNested
+goldenEvalCekLog name values = nestedGoldenVsDocM name $ pretty . view _1 Haskell.<$> (rethrow $ runPlcCekTrace values)
 
 tests :: TestNested
 tests = testNested "TH" [
@@ -76,7 +79,7 @@ tests = testNested "TH" [
     , goldenEvalCekLog "tracePrelude" [tracePrelude]
     , goldenEvalCekLog "traceRepeatedly" [traceRepeatedly]
     -- want to see the raw structure, so using Show
-    , nestedGoldenVsDoc "someData" (pretty $ show someData)
+    , nestedGoldenVsDoc "someData" (pretty $ Haskell.show someData)
   ]
 
 simple :: CompiledCode (Bool -> Integer)
@@ -92,11 +95,11 @@ andPlc = $$(compile [|| $$(andTH) True False ||])
 allPlc :: CompiledCode Bool
 allPlc = $$(compile [|| all (\(x::Integer) -> x > 5) [7, 6] ||])
 
-convertString :: CompiledCode Builtins.String
+convertString :: CompiledCode Builtins.BuiltinString
 convertString = $$(compile [|| "test" ||])
 
 traceDirect :: CompiledCode ()
-traceDirect = $$(compile [|| Builtins.trace "test" ||])
+traceDirect = $$(compile [|| Builtins.trace "test" () ||])
 
 tracePrelude :: CompiledCode Integer
 tracePrelude = $$(compile [|| trace "test" (1::Integer) ||])
@@ -112,7 +115,7 @@ traceRepeatedly = $$(compile
 
 data SomeType = One Integer | Two | Three ()
 
-someData :: (Data, Data, Data)
-someData = (toData (One 1), toData Two, toData (Three ()))
+someData :: (BuiltinData, BuiltinData, BuiltinData)
+someData = (toBuiltinData (One 1), toBuiltinData Two, toBuiltinData (Three ()))
 
 makeIsDataIndexed ''SomeType [('Two, 0), ('One, 1), ('Three, 2)]

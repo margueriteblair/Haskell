@@ -1,11 +1,36 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
-module PlutusTx.List (map, filter, listToMaybe, uniqueElement, findIndices, findIndex, foldr, reverse, zip, (++), (!!)) where
+module PlutusTx.List (
+    map,
+    filter,
+    listToMaybe,
+    uniqueElement,
+    findIndices,
+    findIndex,
+    foldr,
+    reverse,
+    zip,
+    (++),
+    (!!),
+    head,
+    take,
+    tail,
+    nub,
+    nubBy,
+    zipWith,
+    dropWhile
+    ) where
 
-import qualified PlutusTx.Builtins as Builtins
-import           Prelude           hiding (Eq (..), all, any, elem, filter, foldl, foldr, length, map, null, reverse,
-                                    zip, (!!), (&&), (++), (||))
+import                          PlutusTx.Bool       (Bool (..), otherwise, (||))
+import                          PlutusTx.Builtins   (Integer)
+import                qualified PlutusTx.Builtins   as Builtins
+import                          PlutusTx.Eq         (Eq, (==))
+import                          PlutusTx.ErrorCodes
+import {-# SOURCE #-}           PlutusTx.Maybe      (Maybe (..))
+import {-# SOURCE #-}           PlutusTx.Ord        ((<), (<=))
+import                          PlutusTx.Trace      (traceError)
 
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 {-# INLINABLE map #-}
 -- | Plutus Tx version of 'Data.List.map'.
@@ -82,7 +107,8 @@ findIndex p l = listToMaybe (findIndices p l)
 --
 infixl 9 !!
 (!!) :: [a] -> Integer -> a
-[]       !! _ = Builtins.error ()
+_        !! n | n < 0 = traceError negativeIndexError
+[]       !! _ = traceError indexTooLargeError
 (x : xs) !! i = if Builtins.equalsInteger i 0
     then x
     else xs !! Builtins.subtractInteger i 1
@@ -93,8 +119,8 @@ infixl 9 !!
 reverse :: [a] -> [a]
 reverse l = rev l []
   where
-    rev []      a = a
-    rev (x:xs) a  = rev xs (x:a)
+    rev []     a = a
+    rev (x:xs) a = rev xs (x:a)
 
 
 {-# INLINABLE zip #-}
@@ -103,3 +129,60 @@ zip :: [a] -> [b] -> [(a,b)]
 zip []     _bs    = []
 zip _as    []     = []
 zip (a:as) (b:bs) = (a,b) : zip as bs
+
+{-# INLINABLE head #-}
+-- | Plutus Tx version of 'Data.List.head'.
+head :: [a] -> a
+head []      = traceError headEmptyListError
+head (x : _) = x
+
+{-# INLINABLE tail #-}
+-- | Plutus Tx version of 'Data.List.tail'.
+tail :: [a] -> [a]
+tail (_:as) =  as
+tail []     =  traceError tailEmptyListError
+
+{-# INLINABLE take #-}
+-- | Plutus Tx version of 'Data.List.take'.
+take :: Integer -> [a] -> [a]
+take n _      | n <= 0 =  []
+take _ []              =  []
+take n (x:xs)          =  x : take (Builtins.subtractInteger n 1) xs
+
+{-# INLINABLE nub #-}
+-- | Plutus Tx version of 'Data.List.nub'.
+nub :: (Eq a) => [a] -> [a]
+nub =  nubBy (==)
+
+{-# INLINABLE elemBy #-}
+-- | Plutus Tx version of 'Data.List.elemBy'.
+elemBy :: (a -> a -> Bool) -> a -> [a] -> Bool
+elemBy _  _ []     =  False
+elemBy eq y (x:xs) =  x `eq` y || elemBy eq y xs
+
+{-# INLINABLE nubBy #-}
+-- | Plutus Tx version of 'Data.List.nubBy'.
+nubBy :: (a -> a -> Bool) -> [a] -> [a]
+nubBy eq l = nubBy' l []
+  where
+    nubBy' [] _         = []
+    nubBy' (y:ys) xs
+       | elemBy eq y xs = nubBy' ys xs
+       | otherwise      = y : nubBy' ys (y:xs)
+
+{-# INLINABLE zipWith #-}
+-- | Plutus Tx version of 'Data.List.zipWith'.
+zipWith :: (a -> b -> c) -> [a] -> [b] -> [c]
+zipWith f = go
+  where
+    go [] _          = []
+    go _ []          = []
+    go (x:xs) (y:ys) = f x y : go xs ys
+
+{-# INLINABLE dropWhile #-}
+-- | Plutus Tx version of 'Data.List.dropWhile'.
+dropWhile :: (a -> Bool) -> [a] -> [a]
+dropWhile _ []          =  []
+dropWhile p xs@(x:xs')
+    | p x       =  dropWhile p xs'
+    | otherwise =  xs

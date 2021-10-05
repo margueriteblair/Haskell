@@ -14,33 +14,39 @@ module Spec.Stablecoin(
 import           Control.Lens                (preview)
 import           Control.Monad               (void)
 import           Data.Maybe                  (listToMaybe, mapMaybe)
+import           Prelude                     hiding (negate)
+
 import           Ledger.Ada                  (adaSymbol, adaToken)
 import qualified Ledger.Ada                  as Ada
 import           Ledger.Address              (Address)
+import           Ledger.Crypto               (PrivateKey, privateKey2)
 import           Ledger.Oracle               (Observation, SignedMessage, signObservation)
-import           Ledger.Slot                 (Slot (..))
-import           Ledger.Typed.Scripts        (scriptAddress)
-import           Ledger.Value
+import           Ledger.Time                 (POSIXTime)
+import qualified Ledger.TimeSlot             as TimeSlot
+import           Ledger.Typed.Scripts        (validatorAddress)
+import           Ledger.Value                (Value)
+import qualified Ledger.Value                as Value
 import           Plutus.Contract.Test
-import           PlutusTx.Numeric            (negate, one, zero)
-import           PlutusTx.Ratio              as Ratio
-
-import           Prelude                     hiding (negate)
-import           Test.Tasty
-
 import           Plutus.Contracts.Stablecoin (BC (..), ConversionRate, Input (..), RC (..), SC (..), SCAction (..),
                                               Stablecoin (..), StablecoinError, StablecoinSchema)
 import qualified Plutus.Contracts.Stablecoin as Stablecoin
 import           Plutus.Trace.Emulator       (ContractHandle, EmulatorTrace)
 import qualified Plutus.Trace.Emulator       as Trace
 import           Plutus.Trace.Emulator.Types (_ContractLog, cilMessage)
+import           PlutusTx.Numeric            (negate, one, zero)
+import           PlutusTx.Ratio              as Ratio
 import           Wallet.Emulator.MultiAgent  (eteEvent)
 
+import           Test.Tasty
+
 user :: Wallet
-user = Wallet 1
+user = w1
 
 oracle :: Wallet
-oracle = Wallet 2
+oracle = w2
+
+oraclePrivateKey :: PrivateKey
+oraclePrivateKey = privateKey2
 
 onePercent :: Ratio Integer
 onePercent = 1 % 100
@@ -52,16 +58,16 @@ coin = Stablecoin
     , scMinReserveRatio = zero
     , scMaxReserveRatio = 4 % 1
     , scReservecoinDefaultPrice = BC 1
-    , scBaseCurrency = (adaSymbol, adaToken)
+    , scBaseCurrency = Value.assetClass adaSymbol adaToken
     , scStablecoinTokenName = "stablecoin"
     , scReservecoinTokenName = "reservecoin"
     }
 
-signConversionRate :: ConversionRate -> SignedMessage (Observation ConversionRate)
-signConversionRate rate = signObservation (Slot 0) rate (walletPrivKey oracle)
+signConversionRate :: POSIXTime -> ConversionRate -> SignedMessage (Observation ConversionRate)
+signConversionRate startTime rate = signObservation startTime rate oraclePrivateKey
 
 stablecoinAddress :: Address
-stablecoinAddress = scriptAddress $ Stablecoin.scriptInstance coin
+stablecoinAddress = validatorAddress $ Stablecoin.typedValidator coin
 
 initialDeposit :: Value
 initialDeposit = Ada.lovelaceValueOf 100
@@ -100,7 +106,7 @@ tests = testGroup "Stablecoin"
       checkPredicate "Cannot exceed the maximum reserve ratio"
         (valueAtAddress stablecoinAddress (== (initialDeposit <> initialFee <> Ada.lovelaceValueOf 50))
         .&&. assertNoFailedTransactions
-        .&&. assertInstanceLog (Trace.walletInstanceTag $ Wallet 1) ((==) (Just expectedLogMsg) . listToMaybe . reverse . mapMaybe (preview (eteEvent . cilMessage . _ContractLog)))
+        .&&. assertInstanceLog (Trace.walletInstanceTag w1) ((==) (Just expectedLogMsg) . listToMaybe . reverse . mapMaybe (preview (eteEvent . cilMessage . _ContractLog)))
         )
         maxReservesExceededTrace
 
@@ -115,27 +121,30 @@ initialise = do
 
 mintReserveCoins :: RC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 mintReserveCoins rc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintReserveCoin rc
             }
     void $ Trace.waitNSlots 2
 
 mintStableCoins :: SC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 mintStableCoins sc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintStablecoin sc
             }
     void $ Trace.waitNSlots 2
 
 redeemStableCoins :: SC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 redeemStableCoins sc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintStablecoin (negate sc)
             }
     void $ Trace.waitNSlots 2

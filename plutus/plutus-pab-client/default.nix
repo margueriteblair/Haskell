@@ -1,26 +1,33 @@
-{ pkgs, gitignore-nix, set-git-rev, haskell, webCommon, webCommonPlutus, buildPursPackage, buildNodeModules, filterNpm }:
+{ pkgs, gitignore-nix, haskell, webCommon, webCommonPlutus, buildPursPackage, buildNodeModules, filterNpm }:
 let
-  server-invoker = set-git-rev haskell.packages.plutus-pab.components.exes.plutus-pab;
+  server-setup-invoker = haskell.packages.plutus-pab.components.exes.plutus-pab-setup;
+  server-examples-invoker = haskell.packages.plutus-pab.components.exes.plutus-pab-examples;
+  test-generator = haskell.packages.plutus-pab.components.exes.plutus-pab-test-psgenerator;
 
   generated-purescript = pkgs.runCommand "plutus-pab-purescript" { } ''
     mkdir $out
     ln -s ${haskell.packages.plutus-pab.src}/plutus-pab.yaml.sample plutus-pab.yaml
-    ${server-invoker}/bin/plutus-pab psgenerator $out
+    ${server-setup-invoker}/bin/plutus-pab-setup psgenerator $out
+    ${server-examples-invoker}/bin/plutus-pab-examples --config plutus-pab.yaml psapigenerator $out
+    ${test-generator}/bin/plutus-pab-test-psgenerator $out
   '';
 
   # For dev usage
   generate-purescript = pkgs.writeShellScriptBin "plutus-pab-generate-purs" ''
-    rm -rf ./generated
+    generatedDir=./generated
+    rm -rf $generatedDir
     # There might be local modifications so only copy when missing
     ! test -f ./plutus-pab.yaml && cp ../plutus-pab/plutus-pab.yaml.sample plutus-pab.yaml
-    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-invoker)/bin/plutus-pab psgenerator generated
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-setup-invoker)/bin/plutus-pab-setup psgenerator $generatedDir
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.test-generator)/bin/plutus-pab-test-psgenerator $generatedDir
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-examples-invoker)/bin/plutus-pab-examples --config plutus-pab.yaml psapigenerator $generatedDir
   '';
 
   # For dev usage
   migrate = pkgs.writeShellScriptBin "plutus-pab-migrate" ''
     # There might be local modifications so only copy when missing
     ! test -f ./plutus-pab.yaml && cp ../plutus-pab/plutus-pab.yaml.sample plutus-pab.yaml
-    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-invoker)/bin/plutus-pab migrate
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-examples-invoker)/bin/plutus-pab-examples --config=plutus-pab.yaml migrate
   '';
 
   # For dev usage
@@ -29,7 +36,9 @@ let
     export WEBGHC_URL=http://localhost:8080
     # There might be local modifications so only copy when missing
     ! test -f ./plutus-pab.yaml && cp ../plutus-pab/plutus-pab.yaml.sample plutus-pab.yaml
-    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-invoker)/bin/plutus-pab webserver
+    # Only execute the migration when the database file does not exist
+    ! test -f ./$(yq -r '.dbConfig.dbConfigFile' plutus-pab.yaml) && plutus-pab-migrate
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-examples-invoker)/bin/plutus-pab-examples --config=plutus-pab.yaml webserver
   '';
 
   # For dev usage
@@ -38,7 +47,20 @@ let
     export WEBGHC_URL=http://localhost:8080
     # There might be local modifications so only copy when missing
     ! test -f ./plutus-pab.yaml && cp ../plutus-pab/plutus-pab.yaml.sample plutus-pab.yaml
-    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-invoker)/bin/plutus-pab all-servers
+    # Only execute the migration when the database file does not exist
+    ! test -f ./$(yq -r '.dbConfig.dbConfigFile' plutus-pab.yaml) && plutus-pab-migrate
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-examples-invoker)/bin/plutus-pab-examples --config=plutus-pab.yaml all-servers
+  '';
+
+  # For dev usage
+  start-all-servers-m = pkgs.writeShellScriptBin "plutus-pab-all-servers-m" ''
+    export FRONTEND_URL=https://localhost:8009
+    export WEBGHC_URL=http://localhost:8080
+    # There might be local modifications so only copy when missing
+    ! test -f ./plutus-pab.yaml && cp ../plutus-pab/plutus-pab.yaml.sample plutus-pab.yaml
+    # Only execute the migration when the database file does not exist
+    ! test -f ./$(yq -r '.dbConfig.dbConfigFile' plutus-pab.yaml) && plutus-pab-migrate
+    $(nix-build ../default.nix --quiet --no-build-output -A plutus-pab.server-examples-invoker)/bin/plutus-pab-examples --config=plutus-pab.yaml -m all-servers
   '';
 
   cleanSrc = gitignore-nix.gitignoreSource ./.;
@@ -77,5 +99,5 @@ let
 
 in
 {
-  inherit client demo-scripts server-invoker generated-purescript generate-purescript migrate start-backend start-all-servers mkConf pab-exes;
+  inherit client demo-scripts server-examples-invoker server-setup-invoker test-generator generated-purescript generate-purescript migrate start-backend start-all-servers start-all-servers-m mkConf pab-exes;
 }

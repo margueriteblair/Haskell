@@ -1,10 +1,15 @@
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
-module PlutusTx.Either (isLeft, isRight, either) where
+module PlutusTx.Either (Either(..), isLeft, isRight, either) where
 
-import           Prelude (Bool (..), Either (..), String)
+{-
+We export off-chain Haskell's Either type as on-chain Plutus's Either type since they are the same.
+-}
+
+import           PlutusTx.Bool (Bool (..))
+import           Prelude       (Either (..))
 
 
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 {-# INLINABLE isLeft #-}
 -- | Return `True` if the given value is a `Left`-value, `False` otherwise.

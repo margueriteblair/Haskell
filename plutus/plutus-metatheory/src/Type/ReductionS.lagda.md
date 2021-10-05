@@ -3,6 +3,8 @@ title: Type Reduction, structural style
 layout: page
 ---
 
+This is an experiment in using a simple structural style of reduction.
+
 ```
 module Type.ReductionS where
 ```
@@ -17,9 +19,10 @@ version does full normalisation.
 ## Imports
 
 ```
+open import Utils
 open import Type
 open import Type.RenamingSubstitution
-open import Builtin.Constant.Type
+open import Builtin.Constant.Type Ctx⋆ (_⊢⋆ *)
 open import Relation.Nullary
 open import Data.Product
 open import Data.Empty
@@ -50,7 +53,7 @@ data Value⋆ : ∅ ⊢⋆ J → Set where
         -----------------
       → Value⋆ (ƛ N)
 
-  V-con : (tcn : TyCon)
+  V-con : (tcn : TyCon ∅)
           ----------------
         → Value⋆ (con tcn)
 

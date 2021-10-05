@@ -1,52 +1,57 @@
-module MainFrame.State (mkMainFrame) where
+module MainFrame.State (mkMainFrame, handleAction) where
 
 import Prelude
-import ContractHome.State (loadExistingContracts)
+import Bridge (toFront)
+import Capability.Marlowe (class ManageMarlowe, getFollowerApps, getRoleContracts, subscribeToPlutusApp, subscribeToWallet, unsubscribeFromPlutusApp, unsubscribeFromWallet)
+import Capability.MarloweStorage (class ManageMarloweStorage, getContractNicknames, getWalletLibrary)
+import Capability.Toast (class Toast, addToast)
+import Clipboard (class MonadClipboard)
 import Control.Monad.Except (runExcept)
 import Control.Monad.Reader (class MonadAsk)
-import Control.Monad.Rec.Class (forever)
+import Control.Monad.Reader.Class (ask)
+import Dashboard.Lenses (_contracts, _walletDetails)
+import Dashboard.State (dummyState, handleAction, mkInitialState) as Dashboard
+import Dashboard.Types (Action(..), State) as Dashboard
 import Data.Either (Either(..))
 import Data.Foldable (for_)
-import Data.Lens (assign, over, set, use)
-import Data.Map (empty, filter, findMin, insert, lookup, member)
+import Data.Lens (assign, set, use, view)
+import Data.Lens.Extra (peruse)
+import Data.Map (keys)
 import Data.Maybe (Maybe(..))
-import Data.Time.Duration (Milliseconds(..))
-import Effect.Aff (error)
-import Effect.Aff as Aff
+import Data.Newtype (unwrap)
+import Data.Set (toUnfoldable) as Set
+import Data.Time.Duration (Minutes(..))
+import Data.Traversable (for)
 import Effect.Aff.Class (class MonadAff)
-import Effect.Now (getTimezoneOffset)
-import Effect.Random (random)
-import Env (Env)
-import Foreign.Generic (decodeJSON, encodeJSON)
+import Env (DataProvider(..), Env)
+import Foreign.Generic (decodeJSON)
 import Halogen (Component, HalogenM, liftEffect, mkComponent, mkEval, modify_, subscribe)
+import Halogen.Extra (mapMaybeSubmodule, mapSubmodule)
 import Halogen.HTML (HTML)
-import Halogen.Query.EventSource (EventSource)
-import Halogen.Query.EventSource as EventSource
-import LocalStorage (getItem, removeItem, setItem)
-import MainFrame.Lenses (_card, _newWalletContractId, _newWalletNickname, _remoteDataPubKey, _pickupState, _subState, _playState, _wallets, _webSocketStatus)
+import Halogen.LocalStorage (localStorageEvents)
+import Humanize (getTimezoneOffset)
+import MainFrame.Lenses (_currentSlot, _dashboardState, _subState, _toast, _tzOffset, _webSocketStatus, _welcomeState)
 import MainFrame.Types (Action(..), ChildSlots, Msg, Query(..), State, WebSocketStatus(..))
 import MainFrame.View (render)
-import Marlowe.Market (contractTemplates)
-import Marlowe.Semantics (PubKey)
-import Marlowe.Slot (currentSlot)
-import Network.RemoteData (RemoteData(..))
-import Pickup.State (handleAction, initialState) as Pickup
-import Pickup.Types (Action(..), Card(..)) as Pickup
-import Play.Lenses (_allContracts)
-import Play.State (handleAction, mkInitialState) as Play
-import Play.Types (Action(..)) as Play
-import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient(..))
-import Servant.PureScript.Ajax (AjaxError)
-import StaticData (walletDetailsLocalStorageKey, walletLibraryLocalStorageKey)
-import Template.State (handleAction) as Template
-import Template.Types (Action(..)) as Template
-import WalletData.Types (Nickname, WalletDetails)
+import Marlowe.Client (LastResult(..), MarloweError(..))
+import Marlowe.PAB (PlutusAppId)
+import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient(..), InstanceStatusToClient(..))
+import Toast.State (defaultState, handleAction) as Toast
+import Toast.Types (Action, State) as Toast
+import Toast.Types (decodedAjaxErrorToast, decodingErrorToast, errorToast, successToast)
+import WalletData.Lenses (_assets, _companionAppId, _marloweAppId, _previousCompanionAppState, _wallet, _walletInfo)
 import WebSocket.Support as WS
+import Welcome.Lenses (_walletLibrary)
+import Welcome.State (handleAction, dummyState, mkInitialState) as Welcome
+import Welcome.Types (Action(..), State) as Welcome
 
 mkMainFrame ::
   forall m.
   MonadAff m =>
   MonadAsk Env m =>
+  ManageMarlowe m =>
+  Toast m =>
+  MonadClipboard m =>
   Component HTML Query Action Msg m
 mkMainFrame =
   mkComponent
@@ -64,43 +69,103 @@ mkMainFrame =
 
 initialState :: State
 initialState =
-  { wallets: empty
-  , newWalletNickname: mempty
-  , newWalletContractId: mempty
-  , remoteDataPubKey: NotAsked
-  , templates: contractTemplates
-  , webSocketStatus: WebSocketClosed Nothing
-  , subState: Left Pickup.initialState
+  { webSocketStatus: WebSocketClosed Nothing
+  , currentSlot: zero -- this will be updated as soon as the websocket connection is working
+  , subState: Left Welcome.dummyState
+  , toast: Toast.defaultState
+  , tzOffset: Minutes 0.0 -- This will be updated on MainFrame.Init
   }
 
-handleQuery :: forall a m. Query a -> HalogenM State Action ChildSlots Msg m (Maybe a)
+handleQuery ::
+  forall a m.
+  MonadAff m =>
+  MonadAsk Env m =>
+  ManageMarlowe m =>
+  Toast m =>
+  MonadClipboard m =>
+  Query a -> HalogenM State Action ChildSlots Msg m (Maybe a)
 handleQuery (ReceiveWebSocketMessage msg next) = do
   case msg of
-    WS.WebSocketOpen -> assign _webSocketStatus WebSocketOpen
-    (WS.WebSocketClosed reason) -> assign _webSocketStatus (WebSocketClosed (Just reason))
-    (WS.ReceiveMessage (Left errors)) -> pure unit -- failed to decode message, do nothing for now
-    -- TODO: This is where the main logic of dealing with messages goes
-    (WS.ReceiveMessage (Right stc)) -> case stc of
-      (InstanceUpdate contractInstanceId instanceStatusToClient) -> pure unit
-      (SlotChange slot) -> pure unit
-      (WalletFundsChange wallet value) -> pure unit
+    WS.WebSocketOpen -> do
+      assign _webSocketStatus WebSocketOpen
+      -- potentially renew websocket subscriptions
+      mDashboardState <- peruse _dashboardState
+      for_ mDashboardState \dashboardState -> do
+        let
+          wallet = view (_walletDetails <<< _walletInfo <<< _wallet) dashboardState
+
+          followAppIds :: Array PlutusAppId
+          followAppIds = Set.toUnfoldable $ keys $ view _contracts dashboardState
+        { dataProvider } <- ask
+        subscribeToWallet dataProvider wallet
+        for followAppIds $ subscribeToPlutusApp dataProvider
+    (WS.WebSocketClosed closeEvent) -> do
+      -- TODO: Consider whether we should show an error/warning when this happens. It might be more
+      -- confusing than helpful, since the websocket is automatically reopened if it closes for any
+      -- reason.
+      assign _webSocketStatus (WebSocketClosed (Just closeEvent))
+    (WS.ReceiveMessage (Left multipleErrors)) -> addToast $ decodingErrorToast "Failed to parse message from the server." multipleErrors
+    (WS.ReceiveMessage (Right streamToClient)) -> case streamToClient of
+      -- update the current slot
+      SlotChange slot -> do
+        assign _currentSlot $ toFront slot
+        handleAction $ DashboardAction Dashboard.AdvanceTimedoutSteps
+      -- update the wallet funds (if the change is to the current wallet)
+      -- note: we should only ever be notified of changes to the current wallet, since we subscribe to
+      -- this update when we pick it up, and unsubscribe when we put it down - but we check here
+      -- anyway in case
+      WalletFundsChange wallet value -> do
+        mCurrentWallet <- peruse (_dashboardState <<< _walletDetails <<< _walletInfo <<< _wallet)
+        for_ mCurrentWallet \currentWallet -> do
+          when (currentWallet == toFront wallet)
+            $ assign (_dashboardState <<< _walletDetails <<< _assets) (toFront value)
+      -- update the state when a contract instance changes
+      -- note: we should be subscribed to updates from all (and only) the current wallet's contract
+      -- instances, including its wallet companion contract
+      InstanceUpdate contractInstanceId instanceStatusToClient -> case instanceStatusToClient of
+        NewObservableState rawJson -> do
+          let
+            plutusAppId = toFront contractInstanceId
+          mDashboardState <- peruse _dashboardState
+          -- these updates should only ever be coming when we are in the Dashboard state (and if
+          -- we're not, we don't care about them anyway)
+          for_ mDashboardState \dashboardState -> do
+            let
+              walletCompanionAppId = view (_walletDetails <<< _companionAppId) dashboardState
+            -- if this is the wallet's WalletCompanion app...
+            if (plutusAppId == walletCompanionAppId) then case runExcept $ decodeJSON $ unwrap rawJson of
+              Left decodingError -> addToast $ decodingErrorToast "Failed to parse contract update." decodingError
+              Right companionAppState ->
+                -- this check shouldn't be necessary, but at the moment we are getting too many update notifications
+                -- through the PAB - so until that bug is fixed, this will have to mask it
+                when (view (_walletDetails <<< _previousCompanionAppState) dashboardState /= Just companionAppState) do
+                  assign (_dashboardState <<< _walletDetails <<< _previousCompanionAppState) (Just companionAppState)
+                  handleAction $ DashboardAction $ Dashboard.UpdateFollowerApps companionAppState
+            else do
+              let
+                marloweAppId = view (_walletDetails <<< _marloweAppId) dashboardState
+              -- if this is the wallet's MarloweApp...
+              if (plutusAppId == marloweAppId) then case runExcept $ decodeJSON $ unwrap rawJson of
+                Left decodingError -> addToast $ decodingErrorToast "Failed to parse contract update." decodingError
+                Right lastResult -> case lastResult of
+                  -- FIXME: unpack these updates properly and respond appropriately in each case
+                  OK -> addToast $ successToast "all okay"
+                  SomeError marloweError -> addToast $ errorToast "something went wrong" Nothing
+                  Unknown -> pure unit
+              -- otherwise this should be one of the wallet's WalletFollowerApps
+              else case runExcept $ decodeJSON $ unwrap rawJson of
+                Left decodingError -> addToast $ decodingErrorToast "Failed to parse contract update." decodingError
+                Right contractHistory -> do
+                  handleAction $ DashboardAction $ Dashboard.UpdateContract plutusAppId contractHistory
+                  handleAction $ DashboardAction $ Dashboard.RedeemPayments plutusAppId
+        -- Plutus contracts in general can change in other ways, but the Marlowe contracts don't, so
+        -- we can ignore these cases here
+        _ -> pure unit
   pure $ Just next
 
--- FIXME: We need to discuss if we should remove this after we connect to the PAB. In case we do,
---        if there is a disconnection we might lose some seconds and timeouts will freeze.
-currentSlotSubscription ::
-  forall m.
-  MonadAff m =>
-  EventSource m Action
-currentSlotSubscription =
-  EventSource.affEventSource \emitter -> do
-    fiber <-
-      Aff.forkAff
-        $ forever do
-            Aff.delay $ Milliseconds 1000.0
-            slot <- liftEffect $ currentSlot
-            EventSource.emit emitter (PlayAction $ Play.SetCurrentSlot slot)
-    pure $ EventSource.Finalizer $ Aff.killFiber (error "removing aff") fiber
+handleQuery (MainFrameActionQuery action next) = do
+  handleAction action
+  pure $ Just next
 
 -- Note [State]: Some actions belong logically in one part of the state, but
 -- from the user's point of view in another. For example, the action of picking
@@ -115,117 +180,89 @@ handleAction ::
   forall m.
   MonadAff m =>
   MonadAsk Env m =>
-  Action -> HalogenM State Action ChildSlots Msg m Unit
+  ManageMarlowe m =>
+  ManageMarloweStorage m =>
+  Toast m =>
+  MonadClipboard m =>
+  Action ->
+  HalogenM State Action ChildSlots Msg m Unit
+-- mainframe actions
 handleAction Init = do
-  mWalletLibraryJson <- liftEffect $ getItem walletLibraryLocalStorageKey
-  for_ mWalletLibraryJson \json ->
-    for_ (runExcept $ decodeJSON json) \wallets ->
-      assign _wallets wallets
-  mWalletDetailsJson <- liftEffect $ getItem walletDetailsLocalStorageKey
-  for_ mWalletDetailsJson \json ->
-    for_ (runExcept $ decodeJSON json) \walletDetails ->
-      handleAction $ PickupAction $ Pickup.PickupWallet walletDetails
-  void $ subscribe currentSlotSubscription
-
-handleAction (SetNewWalletNickname nickname) = assign _newWalletNickname nickname
-
-handleAction (SetNewWalletContractId contractId) = do
-  assign _newWalletContractId contractId
-  --TODO: use the contract ID to lookup the wallet's public key from PAB
-  randomNumber <- liftEffect random
-  let
-    pubKey = show randomNumber
-  assign _remoteDataPubKey $ Success pubKey
-
-handleAction AddNewWallet = do
-  oldWallets <- use _wallets
-  newWalletNickname <- use _newWalletNickname
-  newWalletContractId <- use _newWalletContractId
-  remoteDataPubKey <- use _remoteDataPubKey
-  for_ (mkNewWallet newWalletNickname newWalletContractId remoteDataPubKey)
-    $ \walletDetails ->
-        when (not $ member newWalletNickname oldWallets) do
-          modify_
-            $ over _wallets (insert newWalletNickname walletDetails)
-            <<< set _newWalletNickname mempty
-            <<< set _newWalletContractId mempty
-            <<< set _remoteDataPubKey NotAsked
-            <<< set (_playState <<< _card) Nothing
-          newWallets <- use _wallets
-          liftEffect $ setItem walletLibraryLocalStorageKey $ encodeJSON newWallets
-
--- pickup actions that need to be handled here
-handleAction (PickupAction (Pickup.SetNewWalletNickname nickname)) = handleAction $ SetNewWalletNickname nickname
-
-handleAction (PickupAction (Pickup.SetNewWalletContractId contractId)) = handleAction $ SetNewWalletContractId contractId
-
-handleAction (PickupAction Pickup.PickupNewWallet) = do
-  newWalletNickname <- use _newWalletNickname
-  newWalletContractId <- use _newWalletContractId
-  remoteDataPubKey <- use _remoteDataPubKey
-  for_ (mkNewWallet newWalletNickname newWalletContractId remoteDataPubKey)
-    $ \walletDetails -> do
-        handleAction AddNewWallet
-        handleAction $ PickupAction $ Pickup.PickupWallet walletDetails
-
-handleAction (PickupAction (Pickup.PickupWallet walletDetails)) = do
-  -- we need the local timezoneOffset in play state in order to convert datetimeLocal
-  -- values to UTC (and vice versa), so we can manage date-to-slot conversions
-  timezoneOffset <- liftEffect getTimezoneOffset
-  -- FIXME: Remove this, only for debugging. Replace with actually loading existing contracts
-  --        from the PAB.
-  contracts <- liftEffect $ loadExistingContracts
-  currentSlot' <- liftEffect currentSlot
+  tzOffset <- liftEffect getTimezoneOffset
+  walletLibrary <- getWalletLibrary
   modify_
-    $ set (_playState <<< _allContracts) contracts
-    <<< set _subState (Right $ Play.mkInitialState walletDetails currentSlot' timezoneOffset)
-    <<< set (_pickupState <<< _card) Nothing
-  -- TODO: fetch current balance of the wallet from PAB
-  -- TODO: open up websocket to this wallet's companion contract from PAB
-  liftEffect $ setItem walletDetailsLocalStorageKey $ encodeJSON walletDetails
+    $ set (_welcomeState <<< _walletLibrary) walletLibrary
+    <<< set _tzOffset tzOffset
+  { dataProvider } <- ask
+  when (dataProvider == LocalStorage) (void $ subscribe $ localStorageEvents $ const $ DashboardAction $ Dashboard.UpdateFromStorage)
 
-handleAction (PickupAction Pickup.GenerateNewWallet) = do
-  -- TODO: ask PAB to generate a new wallet and get the wallet's companion contract ID in return
-  randomNumber <- liftEffect random
+handleAction (EnterWelcomeState walletLibrary walletDetails followerApps) = do
+  { dataProvider } <- ask
   let
-    contractId = show $ randomNumber
-  handleAction $ SetNewWalletContractId contractId
-  assign (_pickupState <<< _card) (Just Pickup.PickupNewWalletCard)
+    followerAppIds :: Array PlutusAppId
+    followerAppIds = Set.toUnfoldable $ keys followerApps
+  unsubscribeFromWallet dataProvider $ view (_walletInfo <<< _wallet) walletDetails
+  unsubscribeFromPlutusApp dataProvider $ view _companionAppId walletDetails
+  unsubscribeFromPlutusApp dataProvider $ view _marloweAppId walletDetails
+  for_ followerAppIds $ unsubscribeFromPlutusApp dataProvider
+  assign _subState $ Left $ Welcome.mkInitialState walletLibrary
 
-handleAction (PickupAction (Pickup.LookupWallet string)) = do
-  wallets <- use _wallets
-  -- check for a matching nickname in the wallet library first
-  case lookup string wallets of
-    Just walletDetails -> assign (_pickupState <<< _card) $ Just $ Pickup.PickupWalletCard walletDetails
-    -- failing that, check for a matching pubkey in the wallet library
-    Nothing -> case findMin $ filter (\walletDetails -> walletDetails.contractId == string) wallets of
-      Just { key, value } -> assign (_pickupState <<< _card) $ Just $ Pickup.PickupWalletCard value
-      -- TODO: and failing that, lookup the wallet contractId from PAB
-      Nothing -> pure unit
+handleAction (EnterDashboardState walletLibrary walletDetails) = do
+  ajaxFollowerApps <- getFollowerApps walletDetails
+  currentSlot <- use _currentSlot
+  case ajaxFollowerApps of
+    Left decodedAjaxError -> addToast $ decodedAjaxErrorToast "Failed to load wallet contracts." decodedAjaxError
+    Right followerApps -> do
+      { dataProvider } <- ask
+      let
+        followerAppIds :: Array PlutusAppId
+        followerAppIds = Set.toUnfoldable $ keys followerApps
+      subscribeToWallet dataProvider $ view (_walletInfo <<< _wallet) walletDetails
+      subscribeToPlutusApp dataProvider $ view _companionAppId walletDetails
+      subscribeToPlutusApp dataProvider $ view _marloweAppId walletDetails
+      for_ followerAppIds $ subscribeToPlutusApp dataProvider
+      contractNicknames <- getContractNicknames
+      assign _subState $ Right $ Dashboard.mkInitialState walletLibrary walletDetails followerApps contractNicknames currentSlot
+      -- we now have all the running contracts for this wallet, but if new role tokens have been given to the
+      -- wallet since we last picked it up, we have to create FollowerApps for those contracts here
+      ajaxRoleContracts <- getRoleContracts walletDetails
+      case ajaxRoleContracts of
+        Left decodedAjaxError -> do
+          handleAction $ WelcomeAction Welcome.CloseCard
+          addToast $ decodedAjaxErrorToast "Failed to load wallet contracts." decodedAjaxError
+        Right companionState -> handleAction $ DashboardAction $ Dashboard.UpdateFollowerApps companionState
 
--- other pickup actions
-handleAction (PickupAction pickupAction) = Pickup.handleAction pickupAction
+handleAction (WelcomeAction welcomeAction) = toWelcome $ Welcome.handleAction welcomeAction
 
--- play actions that need to be handled here
-handleAction (PlayAction Play.PutdownWallet) = do
-  assign _subState $ Left Pickup.initialState
-  liftEffect $ removeItem walletDetailsLocalStorageKey
+handleAction (DashboardAction dashboardAction) = do
+  currentSlot <- use _currentSlot
+  tzOffset <- use _tzOffset
+  toDashboard $ Dashboard.handleAction { currentSlot, tzOffset } dashboardAction
 
-handleAction (PlayAction (Play.SetNewWalletNickname nickname)) = handleAction $ SetNewWalletNickname nickname
-
-handleAction (PlayAction (Play.SetNewWalletContractId contractId)) = handleAction $ SetNewWalletContractId contractId
-
-handleAction (PlayAction (Play.AddNewWallet mTokenName)) = do
-  walletNickname <- use _newWalletNickname
-  handleAction AddNewWallet
-  for_ mTokenName \tokenName ->
-    Template.handleAction $ Template.SetRoleWallet tokenName walletNickname
-
--- other play actions
-handleAction (PlayAction playAction) = Play.handleAction playAction
+handleAction (ToastAction toastAction) = toToast $ Toast.handleAction toastAction
 
 ------------------------------------------------------------
-mkNewWallet :: Nickname -> String -> RemoteData AjaxError PubKey -> Maybe WalletDetails
-mkNewWallet nickname contractId remoteDataPubKey = case remoteDataPubKey of
-  Success pubKey -> Just { nickname, contractId, pubKey, balance: Nothing }
-  _ -> Nothing
+-- Note [dummyState]: In order to map a submodule whose state might not exist, we need
+-- to provide a dummyState for that submodule. Halogen would use this dummyState to play
+-- with if we ever tried to call one of these handlers when the submodule state does not
+-- exist. In practice this should never happen.
+toWelcome ::
+  forall m msg slots.
+  Functor m =>
+  HalogenM Welcome.State Welcome.Action slots msg m Unit ->
+  HalogenM State Action slots msg m Unit
+toWelcome = mapMaybeSubmodule _welcomeState WelcomeAction Welcome.dummyState
+
+toDashboard ::
+  forall m msg slots.
+  Functor m =>
+  HalogenM Dashboard.State Dashboard.Action slots msg m Unit ->
+  HalogenM State Action slots msg m Unit
+toDashboard = mapMaybeSubmodule _dashboardState DashboardAction Dashboard.dummyState
+
+toToast ::
+  forall m msg slots.
+  Functor m =>
+  HalogenM Toast.State Toast.Action slots msg m Unit ->
+  HalogenM State Action slots msg m Unit
+toToast = mapSubmodule _toast ToastAction

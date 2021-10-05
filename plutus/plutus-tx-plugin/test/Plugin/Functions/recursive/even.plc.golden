@@ -11,26 +11,40 @@
     )
     (termbind
       (strict)
+      (vardecl equalsInteger (fun (con integer) (fun (con integer) (con bool))))
+      (builtin equalsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
+    )
+    (termbind
+      (strict)
       (vardecl equalsInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin equalsInteger) arg ] arg ]
-          ]
+          [ [ [ { ifThenElse Bool } [ [ equalsInteger x ] y ] ] True ] False ]
         )
       )
     )
-    (datatypebind
-      (datatype (tyvardecl Unit (type))  Unit_match (vardecl Unit Unit))
+    (termbind
+      (strict)
+      (vardecl
+        subtractInteger (fun (con integer) (fun (con integer) (con integer)))
+      )
+      (builtin subtractInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        subtractInteger (fun (con integer) (fun (con integer) (con integer)))
+      )
+      (lam x (con integer) (lam y (con integer) [ [ subtractInteger x ] y ]))
     )
     (let
       (rec)
@@ -40,50 +54,47 @@
         (lam
           n
           (con integer)
-          [
-            [
+          (let
+            (nonrec)
+            (termbind
+              (nonstrict)
+              (vardecl n (con integer))
+              [ [ subtractInteger n ] (con integer 1) ]
+            )
+            {
               [
-                {
-                  [ Bool_match [ [ equalsInteger n ] (con integer 0) ] ]
-                  (fun Unit Bool)
-                }
-                (lam thunk Unit True)
-              ]
-              (lam
-                thunk
-                Unit
-                (let
-                  (nonrec)
-                  (termbind
-                    (nonstrict)
-                    (vardecl n (con integer))
-                    [ [ (builtin subtractInteger) n ] (con integer 1) ]
-                  )
-                  [
+                [
+                  {
+                    [ Bool_match [ [ equalsInteger n ] (con integer 0) ] ]
+                    (all dead (type) Bool)
+                  }
+                  (abs dead (type) True)
+                ]
+                (abs
+                  dead
+                  (type)
+                  {
                     [
                       [
                         {
                           [ Bool_match [ [ equalsInteger n ] (con integer 0) ] ]
-                          (fun Unit Bool)
+                          (all dead (type) Bool)
                         }
-                        (lam thunk Unit False)
+                        (abs dead (type) False)
                       ]
-                      (lam
-                        thunk
-                        Unit
-                        [
-                          even
-                          [ [ (builtin subtractInteger) n ] (con integer 1) ]
-                        ]
+                      (abs
+                        dead
+                        (type)
+                        [ even [ [ subtractInteger n ] (con integer 1) ] ]
                       )
                     ]
-                    Unit
-                  ]
+                    (all dead (type) dead)
+                  }
                 )
-              )
-            ]
-            Unit
-          ]
+              ]
+              (all dead (type) dead)
+            }
+          )
         )
       )
       even

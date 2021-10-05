@@ -1,20 +1,43 @@
 module Examples.PureScript.Escrow
   ( contractTemplate
+  , fullExtendedContract
   , metaData
-  , extendedContract
+  , fixedTimeoutContract
+  , defaultSlotContent
   ) where
 
 import Prelude
-import Data.BigInteger (BigInteger)
+import Data.BigInteger (BigInteger, fromInt)
+import Data.Map as Map
+import Data.Map (Map)
 import Data.Tuple.Nested (type (/\), (/\))
 import Examples.Metadata as Metadata
 import Marlowe.Extended (Action(..), Case(..), Contract(..), Payee(..), Timeout(..), Value(..))
-import Marlowe.Extended.Metadata (MetaData)
-import Marlowe.Extended.Template (ContractTemplate)
+import Marlowe.Extended.Metadata (MetaData, ContractTemplate)
+import Marlowe.Template (TemplateContent(..), fillTemplate)
 import Marlowe.Semantics (Bound(..), ChoiceId(..), Party(..), Token(..), ChoiceName)
 
 contractTemplate :: ContractTemplate
-contractTemplate = { metaData, extendedContract }
+contractTemplate = { metaData, extendedContract: fullExtendedContract }
+
+fixedTimeoutContract :: Contract
+fixedTimeoutContract =
+  fillTemplate
+    ( TemplateContent
+        { slotContent: defaultSlotContent
+        , valueContent: Map.empty
+        }
+    )
+    fullExtendedContract
+
+defaultSlotContent :: Map String BigInteger
+defaultSlotContent =
+  Map.fromFoldable
+    [ "Payment deadline" /\ fromInt 600
+    , "Complaint deadline" /\ fromInt 1800
+    , "Complaint response deadline" /\ fromInt 2400
+    , "Mediation deadline" /\ fromInt 3600
+    ]
 
 metaData :: MetaData
 metaData = Metadata.escrow
@@ -29,22 +52,22 @@ seller :: Party
 seller = Role "Seller"
 
 arbiter :: Party
-arbiter = Role "Arbiter"
+arbiter = Role "Mediator"
 
 price :: Value
 price = ConstantParam "Price"
 
 depositTimeout :: Timeout
-depositTimeout = SlotParam "Buyer's deposit timeout"
+depositTimeout = SlotParam "Payment deadline"
 
 disputeTimeout :: Timeout
-disputeTimeout = SlotParam "Buyer's dispute timeout"
+disputeTimeout = SlotParam "Complaint response deadline"
 
 answerTimeout :: Timeout
-answerTimeout = SlotParam "Seller's response timeout"
+answerTimeout = SlotParam "Complaint deadline"
 
 arbitrageTimeout :: Timeout
-arbitrageTimeout = SlotParam "Timeout for arbitrage"
+arbitrageTimeout = SlotParam "Mediation deadline"
 
 choice :: ChoiceName -> Party -> BigInteger -> Contract -> Case
 choice choiceName chooser choiceValue continuation =
@@ -76,8 +99,8 @@ sellerToBuyer = Pay seller (Account buyer) ada price
 paySeller :: Contract -> Contract
 paySeller = Pay buyer (Party seller) ada price
 
-extendedContract :: Contract
-extendedContract =
+fullExtendedContract :: Contract
+fullExtendedContract =
   deposit depositTimeout Close
     $ choices disputeTimeout buyer Close
         [ (zero /\ "Everything is alright" /\ Close)

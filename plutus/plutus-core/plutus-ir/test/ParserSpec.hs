@@ -1,5 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
+
 module ParserSpec (parsing) where
 
 import           PlutusPrelude
@@ -9,8 +11,7 @@ import           Common
 import           Data.Char
 import qualified Data.Text               as T
 
-import qualified PlutusCore.Builtins     as PLC
-import qualified PlutusCore.Universe     as PLC
+import qualified PlutusCore.Default      as PLC
 
 import           PlutusIR
 import           PlutusIR.Generators.AST

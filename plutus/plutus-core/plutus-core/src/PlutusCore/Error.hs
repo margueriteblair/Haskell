@@ -7,6 +7,8 @@
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UndecidableInstances   #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -- appears in the generated instances
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 
@@ -33,15 +35,16 @@ import           PlutusCore.DeBruijn.Internal
 import           PlutusCore.Lexer.Type
 import           PlutusCore.Name
 import           PlutusCore.Pretty
-import           PlutusCore.Universe
 
-import           Control.Lens                       hiding (use)
+import           Control.Lens                 hiding (use)
 import           Control.Monad.Error.Lens
 import           Control.Monad.Except
-import qualified Data.Text                          as T
-import           Data.Text.Prettyprint.Doc
-import           Data.Text.Prettyprint.Doc.Internal (Doc (Text))
+import qualified Data.Text                    as T
 import           ErrorCode
+import           Prettyprinter                (hardline, indent, squotes, (<+>))
+import           Prettyprinter.Internal       (Doc (Text))
+import           Text.Megaparsec.Pos          (SourcePos, sourcePosPretty)
+import           Universe                     (Closed (Everywhere), GEq, GShow)
 
 {- Note [Annotations and equality]
 Equality of two errors DOES DEPEND on their annotations.
@@ -62,9 +65,10 @@ data ParseError ann
     = LexErr String
     | Unexpected (Token ann)
     | UnknownBuiltinType ann T.Text
+    | BuiltinTypeNotAStar ann T.Text
     | UnknownBuiltinFunction ann T.Text
     | InvalidBuiltinConstant ann T.Text T.Text
-    deriving (Eq, Generic, NFData, Functor)
+    deriving (Eq, Ord, Generic, NFData, Functor)
 
 makeClassyPrisms ''ParseError
 
@@ -127,10 +131,14 @@ instance (tyname ~ TyName, name ~ Name) =>
 instance AsFreeVariableError (Error uni fun ann) where
     _FreeVariableError = _FreeVariableErrorE
 
+instance Pretty SourcePos where
+    pretty = pretty . sourcePosPretty
+
 instance Pretty ann => Pretty (ParseError ann) where
     pretty (LexErr s)                       = "Lexical error:" <+> Text (length s) (T.pack s)
     pretty (Unexpected t)                   = "Unexpected" <+> squotes (pretty t) <+> "at" <+> pretty (tkLoc t)
     pretty (UnknownBuiltinType loc s)       = "Unknown built-in type" <+> squotes (pretty s) <+> "at" <+> pretty loc
+    pretty (BuiltinTypeNotAStar loc ty)     = "Expected a type of kind star (to later parse a constant), but got:" <+> squotes (pretty ty) <+> "at" <+> pretty loc
     pretty (UnknownBuiltinFunction loc s)   = "Unknown built-in function" <+> squotes (pretty s) <+> "at" <+> pretty loc
     pretty (InvalidBuiltinConstant loc c s) = "Invalid constant" <+> squotes (pretty c) <+> "of type" <+> squotes (pretty s) <+> "at" <+> pretty loc
 
@@ -195,6 +203,7 @@ instance HasErrorCode (ParseError _a) where
     errorCode InvalidBuiltinConstant {} = ErrorCode 10
     errorCode UnknownBuiltinFunction {} = ErrorCode 9
     errorCode UnknownBuiltinType {}     = ErrorCode 8
+    errorCode BuiltinTypeNotAStar {}    = ErrorCode 51
     errorCode Unexpected {}             = ErrorCode 7
     errorCode LexErr {}                 = ErrorCode 6
 

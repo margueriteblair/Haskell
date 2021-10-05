@@ -34,6 +34,7 @@ import           PlutusCore.Generators.NEAT.Common
 import           PlutusCore.Generators.NEAT.Term
 import           PlutusCore.Normalize
 import           PlutusCore.Pretty
+
 import qualified UntypedPlutusCore                        as U
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek as U
 
@@ -58,7 +59,7 @@ data GenOptions = GenOptions
 
 defaultGenOptions :: GenOptions
 defaultGenOptions = GenOptions
-  { genDepth = 13
+  { genDepth = 11
   , genMode  = OF
   }
 
@@ -74,12 +75,10 @@ tests genOpts@GenOptions{} =
       genOpts {genDepth = 14}
       (Type ())
       (packAssertion prop_normalTypesCannotReduce)
-
   , bigTest "type preservation - CK"
       genOpts {genDepth = 18}
       (TyBuiltinG TyUnitG)
       (packAssertion prop_typePreservation)
-
   , bigTest "typed CK vs untyped CEK produce the same output"
       genOpts {genDepth = 18}
       (TyBuiltinG TyUnitG)
@@ -134,7 +133,7 @@ prop_typePreservation tyG tmG = do
   -- Check if the converted term, when evaluated by CK, still has the same type:
 
   tmCK <- withExceptT CkP $ liftEither $
-    evaluateCkNoEmit defBuiltinsRuntime tm `catchError` handleError ty
+    evaluateCkNoEmit defaultBuiltinsRuntime tm `catchError` handleError ty
   withExceptT TypeError $ checkType tcConfig () tmCK (Normalized ty)
 
 -- |Property: check if both the typed CK and untyped CEK machines produce the same ouput
@@ -152,18 +151,18 @@ prop_agree_termEval tyG tmG = do
 
   -- run typed CK on input
   tmCk <- withExceptT CkP $ liftEither $
-    evaluateCkNoEmit defBuiltinsRuntime tm `catchError` handleError ty
+    evaluateCkNoEmit defaultBuiltinsRuntime tm `catchError` handleError ty
 
   -- erase CK output
   let tmUCk = U.erase tmCk
 
   -- run untyped CEK on erased input
   tmUCek <- withExceptT UCekP $ liftEither $
-    U.evaluateCekNoEmit defBuiltinsRuntime (U.erase tm) `catchError` handleUError
+    U.evaluateCekNoEmit defaultCekParameters (U.erase tm) `catchError` handleUError
 
   -- check if typed CK and untyped CEK give the same output modulo erasure
   unless (tmUCk == tmUCek) $
-    throwCtrex (CtrexUntypedTermEvaluationMismatch tyG tmG [tmUCk,tmUCek])
+    throwCtrex (CtrexUntypedTermEvaluationMismatch tyG tmG [("untyped CK",tmUCk),("untyped CEK",tmUCek)])
 
 -- |Property: the following diagram commutes for well-kinded types...
 --
@@ -300,20 +299,20 @@ data Ctrex
   | CtrexTermEvaluationMismatch
     ClosedTypeG
     ClosedTermG
-    [Term TyName Name DefaultUni DefaultFun ()]
+    [(String,Term TyName Name DefaultUni DefaultFun ())]
   | CtrexUntypedTermEvaluationMismatch
     ClosedTypeG
     ClosedTermG
-    [U.Term Name DefaultUni DefaultFun ()]
+    [(String,U.Term Name DefaultUni DefaultFun ())]
 
 instance Show TestFail where
-  show (TypeError e)  = show e
-  show (GenError e)   = show e
-  show (Ctrex e)      = show e
-  show (AgdaErrorP e) = show e
-  show (FVErrorP e)   = show e
-  show (CkP e)        = show e
-  show (UCekP e)      = show e
+  show (TypeError e)  = "type error: " ++ show e
+  show (GenError e)   = "generator error: " ++ show e
+  show (Ctrex e)      = "counter example error: " ++ show e
+  show (AgdaErrorP e) = "agda error: " ++ show e
+  show (FVErrorP e)   = "free variable error: " ++ show e
+  show (CkP e)        = "CK error: " ++ show e
+  show (UCekP e)      = "UCEK error: " ++ show e
 
 instance Show Ctrex where
   show (CtrexNormalizeConvertCommuteTypes k tyG ty1 ty2) =
@@ -338,11 +337,11 @@ instance Show Ctrex where
   show (CtrexKindCheckFail k tyG) =
     printf tpl (show tyG) (show (pretty k))
     where
-      tpl = "Counterexample found: %s :: %s"
+      tpl = "Counterexample found (kind check fail): %s :: %s"
   show (CtrexKindPreservationFail k tyG) =
     printf tpl (show tyG) (show (pretty k))
     where
-      tpl = "Counterexample found: %s :: %s"
+      tpl = "Counterexample found (kind preservation fail): %s :: %s"
   show (CtrexKindMismatch k tyG k' k'') =
     printf
       tpl
@@ -359,7 +358,7 @@ instance Show Ctrex where
   show (CtrexTypeNormalizationFail k tyG) =
     printf tpl (show tyG) (show (pretty k))
     where
-      tpl = "Counterexample found: %s :: %s"
+      tpl = "Counterexample found (type normalisation fail): %s :: %s"
   show (CtrexTypeNormalizationMismatch k tyG ty1 ty2) =
     printf
       tpl
@@ -376,23 +375,23 @@ instance Show Ctrex where
   show (CtrexTypeCheckFail tyG tmG) =
     printf tpl (show tmG) (show tyG)
     where
-      tpl = "Counterexample found: %s :: %s"
+      tpl = "Counterexample found (typecheck fail): %s :: %s"
   show (CtrexTermEvaluationFail tyG tmG) =
     printf tpl (show tmG) (show tyG)
     where
-      tpl = "Counterexample found: %s :: %s"
+      tpl = "Counterexample found (term evaluation fail): %s :: %s"
   show (CtrexTermEvaluationMismatch tyG tmG tms) =
     printf tpl (show tmG) (show tyG) ++ results tms
     where
-      tpl = "Counterexample found: %s :: %s\n"
-      results (t:ts) = "evaluation: " ++ show (pretty t) ++ "\n" ++ results ts
-      results []     = ""
+      tpl = "TypedTermEvaluationMismatch\n" ++ "Counterexample found: %s :: %s\n"
+      results ((s,t):ts) = s ++ " evaluation: " ++ show (pretty t) ++ "\n" ++ results ts
+      results []         = ""
   show (CtrexUntypedTermEvaluationMismatch tyG tmG tms) =
     printf tpl (show tmG) (show tyG) ++ results tms
     where
-      tpl = "Counterexample found: %s :: %s\n"
-      results (t:ts) = "evaluation: " ++ show (pretty t) ++ "\n" ++ results ts
-      results []     = ""
+      tpl = "UntypedTermEvaluationMismatch\n" ++ "Counterexample found: %s :: %s\n"
+      results ((s,t):ts) = s ++ " evaluation: " ++ show (pretty t) ++ "\n" ++ results ts
+      results []         = ""
   show (CtrexTypePreservationFail tyG tmG tm1 tm2) =
     printf tpl (show tmG) (show tyG) (show (pretty tm1)) (show (pretty tm2))
     where

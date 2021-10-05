@@ -26,54 +26,62 @@ module Game where
 -- If it isn't, the funds stay locked.
 import           Control.Monad         (void)
 import qualified Data.ByteString.Char8 as C
-import           Ledger                (Address, Validator, ValidatorCtx, Value, scriptAddress)
+import           Data.Map              (Map)
+import qualified Data.Map              as Map
+import           Data.Maybe            (catMaybes)
+import           Ledger                (Address, Datum (Datum), ScriptContext, Validator, Value)
+import qualified Ledger
+import qualified Ledger.Ada            as Ada
 import qualified Ledger.Constraints    as Constraints
+import           Ledger.Tx             (ChainIndexTxOut (..))
 import qualified Ledger.Typed.Scripts  as Scripts
 import           Playground.Contract
 import           Plutus.Contract
-import qualified PlutusTx              as PlutusTx
+import qualified PlutusTx
 import           PlutusTx.Prelude      hiding (pure, (<$>))
-import qualified Prelude
+import qualified Prelude               as Haskell
 
 ------------------------------------------------------------
 
-newtype HashedString = HashedString ByteString deriving newtype PlutusTx.IsData
+newtype HashedString = HashedString BuiltinByteString deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
 PlutusTx.makeLift ''HashedString
 
-newtype ClearString = ClearString ByteString deriving newtype PlutusTx.IsData
+newtype ClearString = ClearString BuiltinByteString deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
 PlutusTx.makeLift ''ClearString
 
 type GameSchema =
-    BlockchainActions
-        .\/ Endpoint "lock" LockParams
+        Endpoint "lock" LockParams
         .\/ Endpoint "guess" GuessParams
 
 data Game
-instance Scripts.ScriptType Game where
+instance Scripts.ValidatorTypes Game where
     type instance RedeemerType Game = ClearString
     type instance DatumType Game = HashedString
 
-gameInstance :: Scripts.ScriptInstance Game
-gameInstance = Scripts.validator @Game
+gameInstance :: Scripts.TypedValidator Game
+gameInstance = Scripts.mkTypedValidator @Game
     $$(PlutusTx.compile [|| validateGuess ||])
     $$(PlutusTx.compile [|| wrap ||]) where
         wrap = Scripts.wrapValidator @HashedString @ClearString
 
 -- create a data script for the guessing game by hashing the string
 -- and lifting the hash to its on-chain representation
-hashString :: String -> HashedString
-hashString = HashedString . sha2_256 . C.pack
+hashString :: Haskell.String -> HashedString
+hashString = HashedString . sha2_256 . toBuiltin . C.pack
 
 -- create a redeemer script for the guessing game by lifting the
 -- string to its on-chain representation
-clearString :: String -> ClearString
-clearString = ClearString . C.pack
+clearString :: Haskell.String -> ClearString
+clearString = ClearString . toBuiltin . C.pack
 
--- | The validation function (Datum -> Redeemer -> ValidatorCtx -> Bool)
-validateGuess :: HashedString -> ClearString -> ValidatorCtx -> Bool
-validateGuess (HashedString actual) (ClearString guess') _ = actual == sha2_256 guess'
+-- | The validation function (Datum -> Redeemer -> ScriptContext -> Bool)
+validateGuess :: HashedString -> ClearString -> ScriptContext -> Bool
+validateGuess hs cs _ = isGoodGuess hs cs
+
+isGoodGuess :: HashedString -> ClearString -> Bool
+isGoodGuess (HashedString actual) (ClearString guess') = actual == sha2_256 guess'
 
 -- | The validator script of the game.
 gameValidator :: Validator
@@ -85,37 +93,64 @@ gameAddress = Ledger.scriptAddress gameValidator
 
 -- | Parameters for the "lock" endpoint
 data LockParams = LockParams
-    { secretWord :: String
+    { secretWord :: Haskell.String
     , amount     :: Value
     }
-    deriving stock (Prelude.Eq, Prelude.Show, Generic)
+    deriving stock (Haskell.Eq, Haskell.Show, Generic)
     deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
 
 --  | Parameters for the "guess" endpoint
 newtype GuessParams = GuessParams
-    { guessWord :: String
+    { guessWord :: Haskell.String
     }
-    deriving stock (Prelude.Eq, Prelude.Show, Generic)
+    deriving stock (Haskell.Eq, Haskell.Show, Generic)
     deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
 
 -- | The "lock" contract endpoint. See note [Contract endpoints]
-lock :: AsContractError e => Contract () GameSchema e ()
-lock = do
-    LockParams secret amt <- endpoint @"lock" @LockParams
+lock :: AsContractError e => Promise () GameSchema e ()
+lock = endpoint @"lock" @LockParams $ \(LockParams secret amt) -> do
+    logInfo @Haskell.String $ "Pay " <> Haskell.show amt <> " to the script"
     let tx         = Constraints.mustPayToTheScript (hashString secret) amt
     void (submitTxConstraints gameInstance tx)
 
 -- | The "guess" contract endpoint. See note [Contract endpoints]
-guess :: AsContractError e => Contract () GameSchema e ()
-guess = do
-    GuessParams theGuess <- endpoint @"guess" @GuessParams
-    unspentOutputs <- utxoAt gameAddress
+guess :: AsContractError e => Promise () GameSchema e ()
+guess = endpoint @"guess" @GuessParams $ \(GuessParams theGuess) -> do
+    -- Wait for script to have a UTxO of a least 1 lovelace
+    logInfo @Haskell.String "Waiting for script to have a UTxO of at least 1 lovelace"
+    utxos <- fundsAtAddressGeq gameAddress (Ada.lovelaceValueOf 1)
+
     let redeemer = clearString theGuess
-        tx       = collectFromScript unspentOutputs redeemer
-    void (submitTxConstraintsSpending gameInstance unspentOutputs tx)
+        tx       = collectFromScript utxos redeemer
+
+    -- Log a message saying if the secret word was correctly guessed
+    let hashedSecretWord = findSecretWordValue utxos
+        isCorrectSecretWord = fmap (`isGoodGuess` redeemer) hashedSecretWord == Just True
+    if isCorrectSecretWord
+        then logWarn @Haskell.String "Correct secret word! Submitting the transaction"
+        else logWarn @Haskell.String "Incorrect secret word, but still submiting the transaction"
+
+    -- This is only for test purposes to have a possible failing transaction.
+    -- In a real use-case, we would not submit the transaction if the guess is
+    -- wrong.
+    logInfo @Haskell.String "Submitting transaction to guess the secret word"
+    void (submitTxConstraintsSpending gameInstance utxos tx)
+
+-- | Find the secret word in the Datum of the UTxOs
+findSecretWordValue :: Map TxOutRef ChainIndexTxOut -> Maybe HashedString
+findSecretWordValue =
+  listToMaybe . catMaybes . Map.elems . Map.map secretWordValue
+
+-- | Extract the secret word in the Datum of a given transaction output is possible
+secretWordValue :: ChainIndexTxOut -> Maybe HashedString
+secretWordValue o = do
+  Datum d <- either (const Nothing) Just (_ciTxOutDatum o)
+  PlutusTx.fromBuiltinData d
 
 game :: AsContractError e => Contract () GameSchema e ()
-game = lock `select` guess
+game = do
+    logInfo @Haskell.String "Waiting for guess or lock endpoint..."
+    selectList [lock, guess]
 
 {- Note [Contract endpoints]
 

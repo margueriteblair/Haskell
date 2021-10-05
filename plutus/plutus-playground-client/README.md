@@ -33,6 +33,9 @@ The `start` script will:
 
 Once the `start` script completes you can access the frontend via [http://localhost:8009](http://localhost:8009)
 
+> **Note**: You may need to adjust `webpack.config.js` to serve non-SSL content; set
+> `module.exports.devServer.https` to `false`.
+
 ## Development Workflow
 
 The following outlines some essentials for actually working on the plutus playground code.
@@ -112,7 +115,7 @@ backend server with Nix:
 $ nix-build \
   --option trusted-public-keys "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=" \
   --option substituters https://hydra.iohk.io \
-  -A plutus-playground.client -A plutus-playground.server-invoker
+  -A plutus-playground.client -A plutus-playground.server
 ```
 
 **Note**: When building the client make sure that the generated directory is removed completely or you will get _Duplicate module_ errors.

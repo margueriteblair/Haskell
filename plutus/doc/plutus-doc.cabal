@@ -38,21 +38,28 @@ common lang
 
 executable doc-doctests
     import: lang
-    hs-source-dirs: tutorials
+    if(impl(ghcjs) || os(windows))
+      buildable: False
+    hs-source-dirs:
+      plutus/tutorials
+      plutus/howtos
     main-is: Main.hs
-    ghc-options: -pgmL unlit -optL--ghc -optL--language=haskell -optL--from=asciidoc -Wno-unused-imports
-    build-tool-depends: unlit:unlit -any, doctest:doctest -any
+    ghc-options: -Wno-unused-imports
+    build-tool-depends: doctest:doctest -any
     other-modules:
       BasicPlutusTx
       BasicValidators
       BasicPolicies
       BasicApps
       GameModel
+      HandlingBlockchainEvents
       HelloWorldApp
+      WriteScriptsTo
     build-depends:
       base >=4.9 && <5,
       template-haskell >=2.13.0.0,
       bytestring -any,
+      cardano-api -any,
       plutus-core -any,
       plutus-tx -any,
       plutus-ledger -any,
@@ -63,10 +70,12 @@ executable doc-doctests
       containers -any,
       freer-extras -any,
       lens -any,
+      serialise -any,
       QuickCheck -any,
       random -any,
       text -any,
-      aeson -any
+      aeson -any,
+      plutus-chain-index
 
     if !(impl(ghcjs) || os(ghcjs))
         build-depends: plutus-tx-plugin -any

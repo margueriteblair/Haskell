@@ -1,7 +1,10 @@
-{ name ? "devcontainer"
+{ pkgs
+, name ? "devcontainer"
 , tag ? null
 , extraContents ? [ ]
 , extraCommands ? ""
+, nonRootUser ? "plutus"
+, nonRootUserId ? "1000"
 , dockerTools
 , bashInteractive
 , cacert
@@ -19,28 +22,38 @@
 , gzip
 , iana-etc
 , iproute
+, jq
 , less
 , lib
 , nix
 , openssh
 , procps
+, runtimeShell
 , shadow
+, stdenv
 , xz
 , which
 }:
 let
+  bashrc = ./bashrc;
+  # See: https://github.com/NixOS/docker/issues/7
+  nsswitch-conf = pkgs.writeTextFile {
+    name = "nsswitch.conf";
+    text = "hosts: dns files";
+    destination = "/etc/nsswitch.conf";
+  };
   # I think we should be able to use buildLayeredImage, but for some reason it
   # produces a nonfunctional image
   image = dockerTools.buildImage {
     inherit name tag;
 
     contents = [
-      ./root
       coreutils
       procps
       gnugrep
       gnused
       less
+      nsswitch-conf
 
       # add /bin/sh
       bashInteractive
@@ -64,6 +77,10 @@ let
       findutils
       # yes, it breaks without `which`!
       which
+
+      # nice-to-have tools
+      curl
+      jq
     ] ++ extraContents;
 
     extraCommands = ''
@@ -74,19 +91,34 @@ let
       # make sure /tmp exists
       mkdir -m 1777 tmp
 
-      # need a HOME
-      mkdir -vp root
-
       # allow ubuntu ELF binaries to run. VSCode copies it's own.
       chmod +w lib64
       ln -s ${glibc}/lib64/ld-linux-x86-64.so.2 lib64/ld-linux-x86-64.so.2
       ln -s ${gcc-unwrapped.lib}/lib64/libstdc++.so.6 lib64/libstdc++.so.6
       chmod -w lib64
-
     '' + extraCommands;
+
+    runAsRoot = ''
+      ${dockerTools.shadowSetup}
+      groupadd --gid ${nonRootUserId} ${nonRootUser}
+      useradd --uid ${nonRootUserId} --gid ${nonRootUserId} ${nonRootUser}
+
+      mkdir -p /home/${nonRootUser}
+      cat ${bashrc} > /home/${nonRootUser}/.bashrc
+
+      # Because we map in the `./.cabal` folder from the users home directory,
+      # (see: https://github.com/input-output-hk/plutus-starter/blob/main/.devcontainer/devcontainer.json)
+      # and because docker won't let us map a volume not as root
+      # (see: https://github.com/moby/moby/issues/2259 link), we have to make the
+      # folder first and chown it ...
+      mkdir -p /home/${nonRootUser}/.cabal/packages
+
+      chown -R ${nonRootUser}:${nonRootUser} /home/${nonRootUser}
+    '';
 
     config = {
       Cmd = [ "/bin/bash" ];
+      User = nonRootUser;
       Env = [
         "BASH_ENV=/etc/profile.d/env.sh"
         "GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt"
@@ -94,7 +126,8 @@ let
         "PAGER=less"
         "PATH=/usr/bin:/bin"
         "SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
-        "USER=root"
+        "USER=${nonRootUser}"
+        "LANG=C.UTF-8"
       ];
     };
   };

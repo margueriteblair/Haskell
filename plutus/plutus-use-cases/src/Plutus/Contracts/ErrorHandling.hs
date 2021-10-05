@@ -22,6 +22,8 @@ import           Data.Aeson               (FromJSON, ToJSON)
 import           Data.Text                (Text)
 import           GHC.Generics             (Generic)
 
+import           Ledger.TimeSlot          (SlotConfig)
+import qualified Ledger.TimeSlot          as TimeSlot
 import           Plutus.Contract
 
 -- $errorHandling
@@ -33,8 +35,7 @@ import           Plutus.Contract
 -- to write tests for error conditions.
 
 type Schema =
-    BlockchainActions
-        .\/ Endpoint "throwError" ()
+        Endpoint "throwError" ()
         .\/ Endpoint "catchError" ()
         .\/ Endpoint "catchContractError" ()
 
@@ -69,19 +70,22 @@ throwAndCatch =
         handleError1 _ = pure ()
     in catching _Error1 throw handleError1
 
--- | Handle an error from another contract (in this case, 'awaitSlot')
-catchContractError :: (AsMyError e, HasAwaitSlot s) => Contract w s e ()
-catchContractError =
+-- | Handle an error from another contract (in this case, 'awaitTime)
+catchContractError :: (AsMyError e) => SlotConfig -> Contract w s e ()
+catchContractError slotCfg = do
     catching _MyContractError
-        (void $ mapError (review _MyContractError) $ awaitSlot 10)
+        (void $ mapError (review _MyContractError) $
+            awaitTime $ TimeSlot.scSlotZeroTime slotCfg + 10000)
         (\_ -> throwing_ _Error2)
 
 contract
     :: ( AsMyError e
        , AsContractError e
        )
-    => Contract w Schema e ()
-contract =
-    (endpoint @"throwError" >> throw)
-    `select` (endpoint @"catchError" >> throwAndCatch)
-    `select` (endpoint @"catchContractError" >> catchContractError)
+    => SlotConfig
+    -> Contract w Schema e ()
+contract slotCfg = selectList
+    [ endpoint @"throwError" $ const throw
+    , endpoint @"catchError" $ const throwAndCatch
+    , endpoint @"catchContractError" $ const (catchContractError slotCfg)
+    ]

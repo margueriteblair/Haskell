@@ -3,25 +3,29 @@
 
 module Language.Marlowe.ACTUS.Model.Utility.ScheduleGenerator
   ( generateRecurrentScheduleWithCorrections
-  , plusCycle
+  , (<+>)
+  , (<->)
   , sup
   , inf
+  , sup'
+  , inf'
   , remove
+  , applyEOMC
+  , moveToEndOfMonth
   )
 where
 
 import           Control.Arrow                                    ((>>>))
 import           Data.Function                                    ((&))
-import qualified Data.List                                        as L (init, last, notElem)
-import           Data.Time.Calendar                               (Day, addDays, addGregorianMonthsClip,
+import qualified Data.List                                        as L (delete, init, last, length)
+import           Data.Time                                        (LocalTime (..))
+import           Data.Time.Calendar                               (addDays, addGregorianMonthsClip,
                                                                    addGregorianYearsClip, fromGregorian,
                                                                    gregorianMonthLength, toGregorian)
 import           Language.Marlowe.ACTUS.Definitions.ContractTerms (Cycle (..), EOMC (EOMC_EOM), Period (..),
-                                                                   ScheduleConfig (..), Stub (ShortStub))
-import           Language.Marlowe.ACTUS.Definitions.Schedule      (ShiftedDay (calculationDay, paymentDay),
-                                                                   ShiftedSchedule)
+                                                                   ScheduleConfig (..), Stub (LongStub))
+import           Language.Marlowe.ACTUS.Definitions.Schedule      (ShiftedDay (..), ShiftedSchedule)
 import           Language.Marlowe.ACTUS.Model.Utility.DateShift   (applyBDC)
-
 
 
 maximumMaybe :: Ord a => [a] -> Maybe a
@@ -32,66 +36,108 @@ minimumMaybe :: Ord a => [a] -> Maybe a
 minimumMaybe [] = Nothing
 minimumMaybe xs = Just $ minimum xs
 
-inf :: [ShiftedDay] -> Day -> Maybe ShiftedDay
+inf :: [ShiftedDay] -> LocalTime -> Maybe ShiftedDay
 inf set threshold =
-  minimumMaybe [t | t <- set, calculationDay t >= threshold]
+  minimumMaybe [t | t <- set, calculationDay t > threshold]
 
-sup :: [ShiftedDay] -> Day -> Maybe ShiftedDay
+sup :: [ShiftedDay] -> LocalTime -> Maybe ShiftedDay
 sup set threshold =
-  maximumMaybe [t | t <- set, calculationDay t <= threshold]
+  maximumMaybe [t | t <- set, calculationDay t < threshold]
+
+inf' :: (Ord a) => [a] -> a -> Maybe a
+inf' set threshold =
+  minimumMaybe [t | t <- set, t > threshold]
+
+sup' :: (Ord a) => [a] -> a -> Maybe a
+sup' set threshold =
+  maximumMaybe [t | t <- set, t < threshold]
 
 remove :: ShiftedDay -> [ShiftedDay] -> [ShiftedDay]
 remove d = filter (\t -> calculationDay t /= calculationDay d)
 
-stubCorrection :: Stub -> Day -> ShiftedSchedule -> ShiftedSchedule
-stubCorrection stub endDay schedule =
-  if null schedule then schedule
-  else if (paymentDay $ L.last schedule) == endDay || stub == ShortStub then schedule
-  else L.init schedule
+correction :: Cycle -> LocalTime -> LocalTime -> [LocalTime] -> [LocalTime]
+correction Cycle{ stub = stub, includeEndDay = includeEndDay} anchorDate endDate schedule =
+  let
+    lastDate = L.last schedule
+    schedule' = L.init schedule
+    schedule'Size = L.length schedule'
+    schedule'' =
+      -- if includeEndDay then
+      --   schedule' ++ [endDate]
+      -- else
+      --   if endDate == anchorDate then
+      --     L.delete anchorDate schedule'
+      --   else
+      --     schedule'
+      if not includeEndDay && endDate == anchorDate then
+        L.delete anchorDate schedule'
+      else
+        schedule'
+  in
+    if stub == LongStub && L.length schedule'' > 2 && endDate /= lastDate then
+      L.delete (schedule'' !! (schedule'Size - 1)) schedule''
+    else
+      schedule''
 
-endDateCorrection :: Bool -> Day -> [Day] -> [Day]
-endDateCorrection includeEndDay endDay schedule
-  | includeEndDay && L.notElem endDay schedule = schedule ++ [endDay]
--- we don't remove end date if it's already in the schedule:
---  | not includeEndDay && L.elem endDay schedule = L.init schedule
-  | otherwise = schedule
+addEndDay :: Bool -> LocalTime -> ShiftedSchedule -> ShiftedSchedule
+addEndDay includeEndDay endDate schedule =
+  if includeEndDay then
+    schedule ++ [ShiftedDay{ calculationDay = endDate, paymentDay = endDate }]
+  else
+    schedule
 
-generateRecurrentSchedule :: Cycle -> Day -> Day -> [Day]
+generateRecurrentSchedule :: Cycle -> LocalTime -> LocalTime -> [LocalTime]
 generateRecurrentSchedule Cycle {..} anchorDate endDate =
-  let go :: Day -> Integer -> [Day] -> [Day]
-      go current k acc = if current > endDate
-        then acc
+  let go :: LocalTime -> Integer -> [LocalTime] -> [LocalTime]
+      go current k acc = if current >= endDate
+        then acc ++ [current]
         else
           (let current' = shiftDate anchorDate (k * n) p
            in  go current' (k + 1) (acc ++ [current])
           )
   in  go anchorDate 1 []
 
-
+generateRecurrentScheduleWithCorrections :: LocalTime -> Cycle -> LocalTime -> ScheduleConfig -> ShiftedSchedule
 generateRecurrentScheduleWithCorrections
-  :: Day -> Cycle -> Day -> ScheduleConfig -> ShiftedSchedule
-generateRecurrentScheduleWithCorrections anchorDate cycle endDate ScheduleConfig {..}
-  = generateRecurrentSchedule cycle anchorDate endDate &
-      (endDateCorrection includeEndDay endDate >>>
-      (fmap $ applyEOMC anchorDate cycle eomc) >>>
-      (fmap $ applyBDC bdc calendar) >>>
-      stubCorrection (stub cycle) endDate)
+  anchorDate
+  cycle
+  endDate
+  ScheduleConfig
+    { eomc = Just eomc',
+      calendar = Just calendar',
+      bdc = Just bdc'
+    } =
+    generateRecurrentSchedule cycle anchorDate endDate
+      & ( correction cycle anchorDate endDate
+            >>> (fmap $ applyEOMC anchorDate cycle eomc')
+            >>> (fmap $ applyBDC bdc' calendar')
+            >>> addEndDay (includeEndDay cycle) endDate
+        )
+generateRecurrentScheduleWithCorrections _ _ _ _ = []
 
-plusCycle :: Day -> Cycle -> Day
+plusCycle :: LocalTime -> Cycle -> LocalTime
 plusCycle date cycle = shiftDate date (n cycle) (p cycle)
 
-shiftDate :: Day -> Integer -> Period -> Day
-shiftDate date n p = case p of
-  P_D -> addDays n date
-  P_W -> addDays (n * 7) date
-  P_M -> addGregorianMonthsClip n date
-  P_Q -> addGregorianMonthsClip (n * 3) date
-  P_H -> addGregorianMonthsClip (n * 6) date
-  P_Y -> addGregorianYearsClip n date
+minusCycle :: LocalTime -> Cycle -> LocalTime
+minusCycle date cycle = shiftDate date (-n cycle) (p cycle)
 
+(<+>) :: LocalTime -> Cycle -> LocalTime
+(<+>) = plusCycle
+
+(<->) :: LocalTime -> Cycle -> LocalTime
+(<->) = minusCycle
+
+shiftDate :: LocalTime -> Integer -> Period -> LocalTime
+shiftDate LocalTime {..} n p = case p of
+  P_D -> LocalTime {localDay = addDays n localDay, localTimeOfDay = localTimeOfDay}
+  P_W -> LocalTime {localDay = addDays (n * 7) localDay, localTimeOfDay = localTimeOfDay}
+  P_M -> LocalTime {localDay = addGregorianMonthsClip n localDay, localTimeOfDay = localTimeOfDay}
+  P_Q -> LocalTime {localDay = addGregorianMonthsClip (n * 3) localDay, localTimeOfDay = localTimeOfDay}
+  P_H -> LocalTime {localDay = addGregorianMonthsClip (n * 6) localDay, localTimeOfDay = localTimeOfDay}
+  P_Y -> LocalTime {localDay = addGregorianYearsClip n localDay, localTimeOfDay = localTimeOfDay}
 
 {- End of Month Convention -}
-applyEOMC :: Day -> Cycle -> EOMC -> Day -> Day
+applyEOMC :: LocalTime -> Cycle -> EOMC -> LocalTime -> LocalTime
 applyEOMC s Cycle {..} endOfMonthConvention date
   | isLastDayOfMonthWithLessThan31Days s
     && p /= P_D
@@ -101,14 +147,14 @@ applyEOMC s Cycle {..} endOfMonthConvention date
   | otherwise
   = date
 
-isLastDayOfMonthWithLessThan31Days :: Day -> Bool
-isLastDayOfMonthWithLessThan31Days date =
-  let (day, month, year) = toGregorian date
-      isLastDay = gregorianMonthLength (toInteger year) month == fromInteger day
-  in  day <  31 && isLastDay
+isLastDayOfMonthWithLessThan31Days :: LocalTime -> Bool
+isLastDayOfMonthWithLessThan31Days LocalTime {..} =
+  let (year, month, day) = toGregorian localDay
+      isLastDay = gregorianMonthLength year month == day
+   in day < 31 && isLastDay
 
-moveToEndOfMonth :: Day -> Day
-moveToEndOfMonth date =
-  let (_, month, year) = toGregorian date
-      monthLength      = gregorianMonthLength (toInteger year) month
-  in  fromGregorian (toInteger year) month monthLength
+moveToEndOfMonth :: LocalTime -> LocalTime
+moveToEndOfMonth LocalTime {..} =
+  let (year, month, _) = toGregorian localDay
+      monthLength = gregorianMonthLength year month
+   in LocalTime {localDay = fromGregorian year month monthLength, localTimeOfDay = localTimeOfDay}

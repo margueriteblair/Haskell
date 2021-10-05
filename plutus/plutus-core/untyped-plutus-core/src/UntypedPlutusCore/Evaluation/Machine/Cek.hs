@@ -1,54 +1,72 @@
 -- | The API to the CEK machine.
 
-{-# LANGUAGE DataKinds     #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds        #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators    #-}
 
 module UntypedPlutusCore.Evaluation.Machine.Cek
-    ( EvaluationResult(..)
-    , CekValue(..)
-    , CekUserError(..)
-    , CekEvaluationException
-    , CekBudgetSpender(..)
-    , ErrorWithCause(..)
-    , EvaluationError(..)
-    , ExBudgetCategory(..)
-    , CekExTally(..)
-    , ExBudgetMode(..)
-    , CountingSt (..)
-    , TallyingSt (..)
-    , RestrictingSt (..)
-    , Hashable
-    , counting
-    , tallying
-    , restricting
-    , restrictingEnormous
-    , extractEvaluationResult
-    , runCek
+    (
+    -- * Running the machine
+    runCek
     , runCekNoEmit
     , unsafeRunCekNoEmit
     , evaluateCek
     , evaluateCekNoEmit
     , unsafeEvaluateCek
     , unsafeEvaluateCekNoEmit
-    , readKnownCek
+    , EvaluationResult(..)
+    , extractEvaluationResult
+    -- * Errors
+    , CekUserError(..)
+    , ErrorWithCause(..)
+    , CekEvaluationException
+    , EvaluationError(..)
+    -- * Costing
+    , ExBudgetCategory(..)
+    , CekBudgetSpender(..)
+    , ExBudgetMode(..)
+    , StepKind(..)
+    , CekExTally(..)
+    , CountingSt (..)
+    , TallyingSt (..)
+    , RestrictingSt (..)
+    , CekMachineCosts
+    -- ** Costing modes
+    , counting
+    , tallying
+    , restricting
+    , restrictingEnormous
     , enormousBudget
+    -- * Emitter modes
+    , noEmitter
+    , logEmitter
+    , logWithTimeEmitter
+    -- * Misc
+    , CekValue(..)
+    , readKnownCek
+    , Hashable
+    , PrettyUni
     )
 where
 
 import           PlutusPrelude
 
 import           UntypedPlutusCore.Core
+import           UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts
+import           UntypedPlutusCore.Evaluation.Machine.Cek.EmitterMode
 import           UntypedPlutusCore.Evaluation.Machine.Cek.ExBudgetMode
 import           UntypedPlutusCore.Evaluation.Machine.Cek.Internal
 
 import           PlutusCore.Constant
 import           PlutusCore.Evaluation.Machine.ExMemory
 import           PlutusCore.Evaluation.Machine.Exception
+import           PlutusCore.Evaluation.Machine.MachineParameters
 import           PlutusCore.Name
 import           PlutusCore.Pretty
-import           PlutusCore.Universe
 
-import           Data.Ix
+import           Data.Ix                                                  (Ix)
+import           Data.Text                                                (Text)
+import           Universe
 
 {- Note [CEK runners naming convention]
 A function whose name ends in @NoEmit@ does not perform logging and so does not return any logs.
@@ -63,15 +81,13 @@ allow one to specify an 'ExBudgetMode'. I.e. such functions are only for fully e
 
 -- | Evaluate a term using the CEK machine with logging disabled and keep track of costing.
 runCekNoEmit
-    :: ( Closed uni, uni `Everywhere` ExMemoryUsage
-       , Ix fun, ExMemoryUsage fun
-       )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    :: ( uni `Everywhere` ExMemoryUsage, Ix fun, PrettyUni uni fun)
+    => MachineParameters CekMachineCosts CekValue uni fun
     -> ExBudgetMode cost uni fun
     -> Term Name uni fun ()
     -> (Either (CekEvaluationException uni fun) (Term Name uni fun ()), cost)
-runCekNoEmit runtime mode term =
-    case runCek runtime mode False term of
+runCekNoEmit params mode term =
+    case runCek params mode noEmitter term of
         (errOrRes, cost', _) -> (errOrRes, cost')
 
 -- | Unsafely evaluate a term using the CEK machine with logging disabled and keep track of costing.
@@ -79,66 +95,67 @@ runCekNoEmit runtime mode term =
 unsafeRunCekNoEmit
     :: ( GShow uni, Typeable uni
        , Closed uni, uni `EverywhereAll` '[ExMemoryUsage, PrettyConst]
-       , Ix fun, Pretty fun, Typeable fun, ExMemoryUsage fun
+       , Ix fun, Pretty fun, Typeable fun
        )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    => MachineParameters CekMachineCosts CekValue uni fun
     -> ExBudgetMode cost uni fun
     -> Term Name uni fun ()
     -> (EvaluationResult (Term Name uni fun ()), cost)
-unsafeRunCekNoEmit runtime mode =
-    first unsafeExtractEvaluationResult . runCekNoEmit runtime mode
+unsafeRunCekNoEmit params mode =
+    -- Don't use 'first': https://github.com/input-output-hk/plutus/issues/3876
+    (\(e, l) -> (unsafeExtractEvaluationResult e, l)) . runCekNoEmit params mode
 
 -- | Evaluate a term using the CEK machine with logging enabled.
 evaluateCek
-    :: ( Closed uni, uni `Everywhere` ExMemoryUsage
-       , Ix fun, ExMemoryUsage fun
-       )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    :: ( uni `Everywhere` ExMemoryUsage, Ix fun, PrettyUni uni fun)
+    => EmitterMode uni fun
+    -> MachineParameters CekMachineCosts CekValue uni fun
     -> Term Name uni fun ()
-    -> (Either (CekEvaluationException uni fun) (Term Name uni fun ()), [String])
-evaluateCek runtime term =
-    case runCek runtime restrictingEnormous True term of
-        (errOrRes, _, logs) -> (errOrRes, logs)
+    -> (Either (CekEvaluationException uni fun) (Term Name uni fun ()), [Text])
+evaluateCek emitMode params term =
+    case runCek params restrictingEnormous emitMode term of
+         (errOrRes, _, logs) -> (errOrRes, logs)
 
 -- | Evaluate a term using the CEK machine with logging disabled.
 evaluateCekNoEmit
-    :: ( Closed uni, uni `Everywhere` ExMemoryUsage
-       , Ix fun, ExMemoryUsage fun
-       )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    :: ( uni `Everywhere` ExMemoryUsage, Ix fun, PrettyUni uni fun)
+    => MachineParameters CekMachineCosts CekValue uni fun
     -> Term Name uni fun ()
     -> Either (CekEvaluationException uni fun) (Term Name uni fun ())
-evaluateCekNoEmit runtime = fst . runCekNoEmit runtime restrictingEnormous
+evaluateCekNoEmit params = fst . runCekNoEmit params restrictingEnormous
 
 -- | Evaluate a term using the CEK machine with logging enabled. May throw a 'CekMachineException'.
 unsafeEvaluateCek
     :: ( GShow uni, Typeable uni
        , Closed uni, uni `EverywhereAll` '[ExMemoryUsage, PrettyConst]
-       , Ix fun, Pretty fun, Typeable fun, ExMemoryUsage fun
+       , Ix fun, Pretty fun, Typeable fun
        )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    => EmitterMode uni fun
+    -> MachineParameters CekMachineCosts CekValue uni fun
     -> Term Name uni fun ()
-    -> (EvaluationResult (Term Name uni fun ()), [String])
-unsafeEvaluateCek runtime = first unsafeExtractEvaluationResult . evaluateCek runtime
+    -> (EvaluationResult (Term Name uni fun ()), [Text])
+unsafeEvaluateCek emitTime params =
+    -- Don't use 'first': https://github.com/input-output-hk/plutus/issues/3876
+    (\(e, l) -> (unsafeExtractEvaluationResult e, l)) . evaluateCek emitTime params
 
 -- | Evaluate a term using the CEK machine with logging disabled. May throw a 'CekMachineException'.
 unsafeEvaluateCekNoEmit
     :: ( GShow uni, Typeable uni
        , Closed uni, uni `EverywhereAll` '[ExMemoryUsage, PrettyConst]
-       , Ix fun, Pretty fun, Typeable fun, ExMemoryUsage fun
+       , Ix fun, Pretty fun, Typeable fun
        )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    => MachineParameters CekMachineCosts CekValue uni fun
     -> Term Name uni fun ()
     -> EvaluationResult (Term Name uni fun ())
-unsafeEvaluateCekNoEmit runtime = unsafeExtractEvaluationResult . evaluateCekNoEmit runtime
+unsafeEvaluateCekNoEmit params = unsafeExtractEvaluationResult . evaluateCekNoEmit params
 
 -- | Unlift a value using the CEK machine.
 readKnownCek
-    :: ( Closed uni, uni `Everywhere` ExMemoryUsage
+    :: ( uni `Everywhere` ExMemoryUsage
        , KnownType (Term Name uni fun ()) a
-       , Ix fun, ExMemoryUsage fun
+       , Ix fun, PrettyUni uni fun
        )
-    => BuiltinsRuntime fun (CekValue uni fun)
+    => MachineParameters CekMachineCosts CekValue uni fun
     -> Term Name uni fun ()
     -> Either (CekEvaluationException uni fun) a
-readKnownCek runtime = evaluateCekNoEmit runtime >=> readKnown
+readKnownCek params = evaluateCekNoEmit params >=> readKnownSelf

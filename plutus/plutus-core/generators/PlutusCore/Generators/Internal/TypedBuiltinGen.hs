@@ -15,7 +15,6 @@ module PlutusCore.Generators.Internal.TypedBuiltinGen
     ( TermOf(..)
     , TypedBuiltinGenT
     , TypedBuiltinGen
-    , Generatable
     , genLowerBytes
     , genTypedBuiltinFail
     , genTypedBuiltinDef
@@ -27,9 +26,9 @@ import           PlutusCore.Generators.Internal.Dependent
 
 import           PlutusCore.Constant
 import           PlutusCore.Core
+import           PlutusCore.Default.Universe
 import           PlutusCore.Evaluation.Result
 import           PlutusCore.Pretty.PrettyConst
-import           PlutusCore.Universe
 
 import qualified Data.ByteString                          as BS
 import           Data.Functor.Identity
@@ -56,8 +55,6 @@ type TypedBuiltinGenT term m = forall a. AsKnownType term a -> GenT m (TermOf te
 -- | 'TypedBuiltinGenT' specified to 'Identity'.
 type TypedBuiltinGen term = TypedBuiltinGenT term Identity
 
-type Generatable uni = (GShow uni, GEq uni, DefaultUni <: uni)
-
 instance (PrettyBy config a, PrettyBy config term) =>
         PrettyBy config (TermOf term a) where
     prettyBy config (TermOf t x) = prettyBy config t <+> "~>" <+> prettyBy config x
@@ -67,7 +64,7 @@ attachCoercedTerm
     => GenT m a -> GenT m (TermOf term a)
 attachCoercedTerm a = do
     x <- a
-    case makeKnownNoEmit x of
+    case makeKnownOrFail x of
         -- I've attempted to implement support for generating 'EvaluationFailure',
         -- but it turned out to be too much of a pain for something that we do not really need.
         EvaluationFailure -> fail $ concat
@@ -95,7 +92,7 @@ genTypedBuiltinFail tb = fail $ fold
 
 -- | A default built-ins generator.
 genTypedBuiltinDef
-    :: (Generatable uni, HasConstantIn uni term, Monad m)
+    :: (HasConstantIn DefaultUni term, Monad m)
     => TypedBuiltinGenT term m
 genTypedBuiltinDef
     = updateTypedBuiltinGen @Integer (Gen.integral $ Range.linearFrom 0 0 10)

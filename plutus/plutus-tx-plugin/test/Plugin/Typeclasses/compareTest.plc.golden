@@ -1,52 +1,29 @@
 (program
   (let
     (nonrec)
+    (termbind
+      (strict)
+      (vardecl equalsInteger (fun (con integer) (fun (con integer) (con bool))))
+      (builtin equalsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        lessThanEqualsInteger (fun (con integer) (fun (con integer) (con bool)))
+      )
+      (builtin lessThanEqualsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
+    )
     (datatypebind
       (datatype
         (tyvardecl Bool (type))
 
         Bool_match
         (vardecl True Bool) (vardecl False Bool)
-      )
-    )
-    (termbind
-      (strict)
-      (vardecl equalsInteger (fun (con integer) (fun (con integer) Bool)))
-      (lam
-        arg
-        (con integer)
-        (lam
-          arg
-          (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin equalsInteger) arg ] arg ]
-          ]
-        )
-      )
-    )
-    (termbind
-      (strict)
-      (vardecl lessThanEqInteger (fun (con integer) (fun (con integer) Bool)))
-      (lam
-        arg
-        (con integer)
-        (lam
-          arg
-          (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin lessThanEqualsInteger) arg ] arg ]
-          ]
-        )
       )
     )
     (datatypebind
@@ -57,13 +34,10 @@
         (vardecl EQ Ordering) (vardecl GT Ordering) (vardecl LT Ordering)
       )
     )
-    (datatypebind
-      (datatype (tyvardecl Unit (type))  Unit_match (vardecl Unit Unit))
-    )
     (termbind
       (strict)
       (vardecl
-        fOrdData_ccompare (fun (con integer) (fun (con integer) Ordering))
+        fOrdInteger_ccompare (fun (con integer) (fun (con integer) Ordering))
       )
       (lam
         x
@@ -71,32 +45,53 @@
         (lam
           y
           (con integer)
-          [
+          {
             [
               [
-                { [ Bool_match [ [ equalsInteger x ] y ] ] (fun Unit Ordering) }
-                (lam thunk Unit EQ)
+                {
+                  [
+                    Bool_match
+                    [
+                      [ [ { ifThenElse Bool } [ [ equalsInteger x ] y ] ] True ]
+                      False
+                    ]
+                  ]
+                  (all dead (type) Ordering)
+                }
+                (abs dead (type) EQ)
               ]
-              (lam
-                thunk
-                Unit
-                [
+              (abs
+                dead
+                (type)
+                {
                   [
                     [
                       {
-                        [ Bool_match [ [ lessThanEqInteger x ] y ] ]
-                        (fun Unit Ordering)
+                        [
+                          Bool_match
+                          [
+                            [
+                              [
+                                { ifThenElse Bool }
+                                [ [ lessThanEqualsInteger x ] y ]
+                              ]
+                              True
+                            ]
+                            False
+                          ]
+                        ]
+                        (all dead (type) Ordering)
                       }
-                      (lam thunk Unit LT)
+                      (abs dead (type) LT)
                     ]
-                    (lam thunk Unit GT)
+                    (abs dead (type) GT)
                   ]
-                  Unit
-                ]
+                  (all dead (type) dead)
+                }
               )
             ]
-            Unit
-          ]
+            (all dead (type) dead)
+          }
         )
       )
     )
@@ -111,19 +106,30 @@
         (lam
           y
           (con integer)
-          [
+          {
             [
               [
                 {
-                  [ Bool_match [ [ lessThanEqInteger x ] y ] ]
-                  (fun Unit (con integer))
+                  [
+                    Bool_match
+                    [
+                      [
+                        [
+                          { ifThenElse Bool } [ [ lessThanEqualsInteger x ] y ]
+                        ]
+                        True
+                      ]
+                      False
+                    ]
+                  ]
+                  (all dead (type) (con integer))
                 }
-                (lam thunk Unit y)
+                (abs dead (type) y)
               ]
-              (lam thunk Unit x)
+              (abs dead (type) x)
             ]
-            Unit
-          ]
+            (all dead (type) dead)
+          }
         )
       )
     )
@@ -138,40 +144,65 @@
         (lam
           y
           (con integer)
-          [
+          {
             [
               [
                 {
-                  [ Bool_match [ [ lessThanEqInteger x ] y ] ]
-                  (fun Unit (con integer))
+                  [
+                    Bool_match
+                    [
+                      [
+                        [
+                          { ifThenElse Bool } [ [ lessThanEqualsInteger x ] y ]
+                        ]
+                        True
+                      ]
+                      False
+                    ]
+                  ]
+                  (all dead (type) (con integer))
                 }
-                (lam thunk Unit x)
+                (abs dead (type) x)
               ]
-              (lam thunk Unit y)
+              (abs dead (type) y)
             ]
-            Unit
-          ]
+            (all dead (type) dead)
+          }
         )
       )
     )
     (termbind
       (strict)
-      (vardecl greaterThanEqInteger (fun (con integer) (fun (con integer) Bool))
-      )
+      (vardecl equalsInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin greaterThanEqualsInteger) arg ] arg ]
-          ]
+          [ [ [ { ifThenElse Bool } [ [ equalsInteger x ] y ] ] True ] False ]
+        )
+      )
+    )
+    (termbind
+      (strict)
+      (vardecl
+        lessThanInteger (fun (con integer) (fun (con integer) (con bool)))
+      )
+      (builtin lessThanInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        greaterThanEqualsInteger (fun (con integer) (fun (con integer) Bool))
+      )
+      (lam
+        x
+        (con integer)
+        (lam
+          y
+          (con integer)
+          [ [ [ { ifThenElse Bool } [ [ lessThanInteger x ] y ] ] False ] True ]
         )
       )
     )
@@ -179,18 +210,32 @@
       (strict)
       (vardecl greaterThanInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
           [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin greaterThanInteger) arg ] arg ]
+            [ [ { ifThenElse Bool } [ [ lessThanEqualsInteger x ] y ] ] False ]
+            True
+          ]
+        )
+      )
+    )
+    (termbind
+      (strict)
+      (vardecl
+        lessThanEqualsInteger (fun (con integer) (fun (con integer) Bool))
+      )
+      (lam
+        x
+        (con integer)
+        (lam
+          y
+          (con integer)
+          [
+            [ [ { ifThenElse Bool } [ [ lessThanEqualsInteger x ] y ] ] True ]
+            False
           ]
         )
       )
@@ -199,19 +244,12 @@
       (strict)
       (vardecl lessThanInteger (fun (con integer) (fun (con integer) Bool)))
       (lam
-        arg
+        x
         (con integer)
         (lam
-          arg
+          y
           (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin lessThanInteger) arg ] arg ]
-          ]
+          [ [ [ { ifThenElse Bool } [ [ lessThanInteger x ] y ] ] True ] False ]
         )
       )
     )
@@ -222,13 +260,31 @@
         Ord_match
         (vardecl
           CConsOrd
-          (fun [(lam a (type) (fun a (fun a Bool))) a] (fun (fun a (fun a Ordering)) (fun (fun a (fun a Bool)) (fun (fun a (fun a Bool)) (fun (fun a (fun a Bool)) (fun (fun a (fun a Bool)) (fun (fun a (fun a a)) (fun (fun a (fun a a)) [Ord a]))))))))
+          (fun
+            [ (lam a (type) (fun a (fun a Bool))) a ]
+            (fun
+              (fun a (fun a Ordering))
+              (fun
+                (fun a (fun a Bool))
+                (fun
+                  (fun a (fun a Bool))
+                  (fun
+                    (fun a (fun a Bool))
+                    (fun
+                      (fun a (fun a Bool))
+                      (fun (fun a (fun a a)) (fun (fun a (fun a a)) [ Ord a ]))
+                    )
+                  )
+                )
+              )
+            )
+          )
         )
       )
     )
     (termbind
       (nonstrict)
-      (vardecl fOrdInteger [Ord (con integer)])
+      (vardecl fOrdInteger [ Ord (con integer) ])
       [
         [
           [
@@ -237,15 +293,15 @@
                 [
                   [
                     [ { CConsOrd (con integer) } equalsInteger ]
-                    fOrdData_ccompare
+                    fOrdInteger_ccompare
                   ]
                   lessThanInteger
                 ]
-                lessThanEqInteger
+                lessThanEqualsInteger
               ]
               greaterThanInteger
             ]
-            greaterThanEqInteger
+            greaterThanEqualsInteger
           ]
           fOrdInteger_cmax
         ]
@@ -254,18 +310,18 @@
     )
     (termbind
       (strict)
-      (vardecl compare (all a (type) (fun [Ord a] (fun a (fun a Ordering)))))
+      (vardecl compare (all a (type) (fun [ Ord a ] (fun a (fun a Ordering)))))
       (abs
         a
         (type)
         (lam
           v
-          [Ord a]
+          [ Ord a ]
           [
             { [ { Ord_match a } v ] (fun a (fun a Ordering)) }
             (lam
               v
-              [(lam a (type) (fun a (fun a Bool))) a]
+              [ (lam a (type) (fun a (fun a Bool))) a ]
               (lam
                 v
                 (fun a (fun a Ordering))
@@ -294,35 +350,37 @@
     )
     (termbind
       (strict)
-      (vardecl opCompare (all a (type) (fun [Ord a] (fun a (fun a Ordering)))))
+      (vardecl
+        opCompare (all a (type) (fun [ Ord a ] (fun a (fun a Ordering))))
+      )
       (abs
         a
         (type)
         (lam
           dOrd
-          [Ord a]
+          [ Ord a ]
           (lam
             a
             a
             (lam
               b
               a
-              [
+              {
                 [
                   [
                     [
                       {
                         [ Ordering_match [ [ [ { compare a } dOrd ] a ] b ] ]
-                        (fun Unit Ordering)
+                        (all dead (type) Ordering)
                       }
-                      (lam thunk Unit EQ)
+                      (abs dead (type) EQ)
                     ]
-                    (lam thunk Unit LT)
+                    (abs dead (type) LT)
                   ]
-                  (lam thunk Unit GT)
+                  (abs dead (type) GT)
                 ]
-                Unit
-              ]
+                (all dead (type) dead)
+              }
             )
           )
         )

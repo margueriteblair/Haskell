@@ -5,12 +5,13 @@ module PlutusTx.Monoid (Monoid (..), mappend, mconcat, Group (..), gsub) where
 
 import           Data.Monoid        (First (..))
 import           Data.Semigroup     (Dual (..), Endo (..))
+import           PlutusTx.Base      (id)
 import qualified PlutusTx.Builtins  as Builtins
-import           PlutusTx.Functor   (id)
+import           PlutusTx.List
+import           PlutusTx.Maybe
 import           PlutusTx.Semigroup
-import           Prelude            hiding (Monoid (..), Semigroup (..), id, mconcat)
 
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 -- | Plutus Tx version of 'Data.Monoid.Monoid'.
 class Semigroup a => Monoid a where
@@ -29,11 +30,11 @@ mappend = (<>)
 mconcat :: Monoid a => [a] -> a
 mconcat = foldr mappend mempty
 
-instance Monoid Builtins.ByteString where
+instance Monoid Builtins.BuiltinByteString where
     {-# INLINABLE mempty #-}
     mempty = Builtins.emptyByteString
 
-instance Monoid Builtins.String where
+instance Monoid Builtins.BuiltinString where
     {-# INLINABLE mempty #-}
     mempty = Builtins.emptyString
 

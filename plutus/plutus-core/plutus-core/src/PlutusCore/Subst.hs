@@ -29,10 +29,12 @@ import           PlutusCore.Name
 import           Control.Lens
 import           Data.Functor.Foldable (cata)
 import           Data.Set              as Set
+import           Data.Set.Lens         (setOf)
 
 purely :: ((a -> Identity b) -> c -> Identity d) -> (a -> b) -> c -> d
 purely = coerce
 
+{-# INLINE substTyVarA #-}
 -- | Applicatively replace a type variable using the given function.
 substTyVarA
     :: Applicative f
@@ -65,7 +67,9 @@ substVar
     -> Term tyname name uni fun ann
 substVar = purely substVarA
 
+{-# INLINE typeSubstTyNamesM #-}
 -- | Naively monadically substitute type names (i.e. do not substitute binders).
+-- INLINE is important here because the function is too polymorphic (determined from profiling)
 typeSubstTyNamesM
     :: Monad m
     => (tyname -> m (Maybe (Type tyname uni ann)))
@@ -183,11 +187,6 @@ ftvTy = cata f
     f (TyLamF _ bnd _ ty)    = delete bnd ty
     f (TyAppF _ ty1 ty2)     = ty1 `union` ty2
     f TyBuiltinF{}           = Set.empty
-
--- All variables
-
-setOf :: Getting (Set a) s a -> s -> Set a
-setOf g = foldMapOf g singleton
 
 -- | Get all the term variables in a term.
 vTerm :: Ord name => Term tyname name uni fun ann -> Set name

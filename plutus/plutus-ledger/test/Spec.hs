@@ -1,22 +1,23 @@
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeApplications  #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 module Main(main) where
 
 import           Control.Lens
-import           Control.Monad               (forM_, guard, void)
+import           Control.Monad               (forM_, guard, replicateM, void)
 import           Control.Monad.Trans.Except  (runExcept)
 import qualified Data.Aeson                  as JSON
 import qualified Data.Aeson.Extras           as JSON
 import qualified Data.Aeson.Internal         as Aeson
 import qualified Data.ByteString             as BSS
 import qualified Data.ByteString.Lazy        as BSL
+import           Data.Default                (Default (def))
 import           Data.Either                 (isLeft, isRight)
 import           Data.Foldable               (fold, foldl', traverse_)
 import           Data.List                   (sort)
 import qualified Data.Map                    as Map
+import           Data.Maybe                  (fromJust)
 import           Data.Monoid                 (Sum (..))
 import qualified Data.Set                    as Set
 import           Data.String                 (IsString (fromString))
@@ -30,21 +31,24 @@ import           Ledger.Bytes                as Bytes
 import qualified Ledger.Constraints.OffChain as OC
 import qualified Ledger.Contexts             as Validation
 import qualified Ledger.Crypto               as Crypto
+import           Ledger.Fee                  (FeeConfig (..), calcFees)
 import qualified Ledger.Generators           as Gen
 import qualified Ledger.Index                as Index
 import qualified Ledger.Interval             as Interval
 import qualified Ledger.Scripts              as Scripts
+import           Ledger.TimeSlot             (SlotConfig (..))
+import qualified Ledger.TimeSlot             as TimeSlot
+import qualified Ledger.Tx                   as Tx
 import           Ledger.Value                (CurrencySymbol, Value (Value))
 import qualified Ledger.Value                as Value
-import qualified PlutusCore.Builtins         as PLC
-import qualified PlutusCore.Universe         as PLC
+import qualified PlutusCore.Default          as PLC
 import           PlutusTx                    (CompiledCode, applyCode, liftCode)
-import qualified PlutusTx                    as PlutusTx
+import qualified PlutusTx
 import qualified PlutusTx.AssocMap           as AMap
 import qualified PlutusTx.AssocMap           as AssocMap
 import qualified PlutusTx.Builtins           as Builtins
 import qualified PlutusTx.Prelude            as PlutusTx
-import           Test.Tasty
+import           Test.Tasty                  hiding (after)
 import           Test.Tasty.HUnit            (testCase)
 import qualified Test.Tasty.HUnit            as HUnit
 import           Test.Tasty.Hedgehog         (testProperty)
@@ -70,8 +74,7 @@ tests = testGroup "all tests" [
     testGroup "Etc." [
         testProperty "splitVal" splitVal,
         testProperty "encodeByteString" encodeByteStringTest,
-        testProperty "encodeSerialise" encodeSerialiseTest,
-        testProperty "pubkey hash" pubkeyHashOnChainAndOffChain
+        testProperty "encodeSerialise" encodeSerialiseTest
         ],
     testGroup "LedgerBytes" [
         testProperty "show-fromHex" ledgerBytesShowFromHexProp,
@@ -93,6 +96,26 @@ tests = testGroup "all tests" [
                 in byteStringJson vlJson vlValue)),
     testGroup "Constraints" [
         testProperty "missing value spent" missingValueSpentProp
+        ],
+    testGroup "Tx" [
+        testProperty "TxOut fromTxOut/toTxOut" ciTxOutRoundTrip
+        ],
+    testGroup "Fee" [
+        testProperty "calcFees" calcFeesTest
+        ],
+    testGroup "TimeSlot" [
+        testProperty "time range of starting slot" initialSlotToTimeProp,
+        testProperty "slot of starting time range" initialTimeToSlotProp,
+        testProperty "slot number >=0 when converting from time" slotIsPositiveProp,
+        testProperty "slotRange to timeRange inverse property" slotToTimeInverseProp,
+        testProperty "timeRange to slotRange inverse property" timeToSlotInverseProp,
+        testProperty "slot to time range inverse to slot range"
+          slotToTimeRangeBoundsInverseProp,
+        testProperty "slot to time range has lower bound <= upper bound"
+          slotToTimeRangeHasLowerAndUpperBoundsProp
+        ],
+    testGroup "SomeCardanoApiTx" [
+        testProperty "Value ToJSON/FromJSON" (jsonRoundTrip Gen.genSomeCardanoApiTx)
         ]
     ]
 
@@ -182,14 +205,14 @@ jsonRoundTrip gen = property $ do
 
 ledgerBytesShowFromHexProp :: Property
 ledgerBytesShowFromHexProp = property $ do
-    bts <- forAll $ LedgerBytes <$> Gen.genSizedByteString 32
+    bts <- forAll $ LedgerBytes . PlutusTx.toBuiltin <$> Gen.genSizedByteString 32
     let result = Bytes.fromHex $ fromString $ show bts
 
     Hedgehog.assert $ result == Right bts
 
 ledgerBytesToJSONProp :: Property
 ledgerBytesToJSONProp = property $ do
-    bts <- forAll $ LedgerBytes <$> Gen.genSizedByteString 32
+    bts <- forAll $ LedgerBytes . PlutusTx.toBuiltin <$> Gen.genSizedByteString 32
     let enc    = JSON.toJSON bts
         result = Aeson.iparse JSON.parseJSON enc
 
@@ -207,18 +230,6 @@ byteStringJson jsonString value =
         HUnit.assertEqual "Simple Decode" (Right value) (JSON.eitherDecode jsonString)
     , testCase "encoding" $ HUnit.assertEqual "Simple Encode" jsonString (JSON.encode value)
     ]
-
--- | Check that the on-chain version and the off-chain version of 'pubKeyHash'
---   match.
-pubkeyHashOnChainAndOffChain :: Property
-pubkeyHashOnChainAndOffChain = property $ do
-    pk <- forAll $ PubKey . LedgerBytes <$> Gen.genSizedByteString 32 -- this won't generate a valid public key but that doesn't matter for the purposes of pubKeyHash
-    let offChainHash = Crypto.pubKeyHash pk
-        onchainProg :: CompiledCode (PubKey -> PubKeyHash -> ())
-        onchainProg = $$(PlutusTx.compile [|| \pk expected -> if (expected PlutusTx.== Validation.pubKeyHash pk) then PlutusTx.trace "correct" () else PlutusTx.traceError "not correct" ||])
-        script = Scripts.fromCompiledCode $ onchainProg `applyCode` (liftCode pk) `applyCode` (liftCode offChainHash)
-        result = runExcept $ evaluateScript script
-    Hedgehog.assert (result == Right ["correct"])
 
 -- | Check that 'missingValueSpent' is the smallest value needed to
 --   meet the requirements.
@@ -243,6 +254,7 @@ missingValueSpentProp = property $ do
     forM_ smaller $ \smaller' ->
         Hedgehog.assert (not (OC.vbsRequired balances `Value.leq` (actual <> smaller')))
 
+
 -- | Reduce one of the elements in a 'Value' by one.
 --   Returns 'Nothing' if the value contains no positive
 --   elements.
@@ -253,7 +265,7 @@ reduceByOne (Value.Value value) = do
             (tokenName, amount) <- AMap.toList rest
             guard (amount > 0)
             pure (currency, tokenName, pred amount)
-    if (null flat)
+    if null flat
         then pure Nothing
         else (\(cur, tok, amt) -> Just $ Value.singleton cur tok amt) <$> Gen.element flat
 
@@ -264,6 +276,90 @@ nonNegativeValue =
     let mpsHashes = ["ffff", "dddd", "cccc", "eeee", "1010"]
         tokenNames = ["a", "b", "c", "d"]
     in Value.singleton
-        <$> (Gen.element mpsHashes)
-        <*> (Gen.element tokenNames)
+        <$> Gen.element mpsHashes
+        <*> Gen.element tokenNames
         <*> Gen.integral (Range.linear 0 10000)
+
+-- | Validate inverse property between 'fromTxOut' and 'toTxOut given a 'TxOut'.
+ciTxOutRoundTrip :: Property
+ciTxOutRoundTrip = property $ do
+  txOuts <- Map.elems . Gen.mockchainUtxo <$> forAll Gen.genMockchain
+  forM_ txOuts $ \txOut -> do
+    Hedgehog.assert $ Tx.toTxOut (fromJust $ Tx.fromTxOut txOut) == txOut
+
+calcFeesTest :: Property
+calcFeesTest = property $ do
+    let feeCfg = FeeConfig 10 0.3
+    Hedgehog.assert $ calcFees feeCfg 11 == Ada.lovelaceOf 13
+
+-- | Asserting that time range of 'scSlotZeroTime' to 'scSlotZeroTime + scSlotLength'
+-- is 'Slot 0' and the time after that is 'Slot 1'.
+initialSlotToTimeProp :: Property
+initialSlotToTimeProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    n <- forAll $ Gen.int (fromInteger <$> Range.linear 0 (fromIntegral $ scSlotLength sc))
+    let diff = DiffMilliSeconds $ toInteger n
+    let time = TimeSlot.scSlotZeroTime sc + fromMilliSeconds diff
+    if diff >= fromIntegral (scSlotLength sc)
+        then Hedgehog.assert $ TimeSlot.posixTimeToEnclosingSlot sc time == Slot 1
+        else Hedgehog.assert $ TimeSlot.posixTimeToEnclosingSlot sc time == Slot 0
+
+-- | Property that the interval time of 'Slot 0' goes from 'scSlotZeroTime' to
+-- 'scSlotZeroTime + scSlotLength - 1'
+initialTimeToSlotProp :: Property
+initialTimeToSlotProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    let beginTime = TimeSlot.scSlotZeroTime sc
+        endTime = TimeSlot.scSlotZeroTime sc + fromIntegral (TimeSlot.scSlotLength sc) - 1
+        expectedTimeRange = interval beginTime endTime
+    Hedgehog.assert $ TimeSlot.slotToPOSIXTimeRange sc 0 == expectedTimeRange
+
+-- | Converting from POSIXTime to Slot should always produce a non negative
+-- slot number.
+slotIsPositiveProp :: Property
+slotIsPositiveProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    posixTime <- forAll $ Gen.genPOSIXTime sc
+    Hedgehog.assert $ TimeSlot.posixTimeToEnclosingSlot sc posixTime >= 0
+
+-- | Inverse property between 'slotRangeToPOSIXTimeRange' and
+-- 'posixTimeRangeToContainedSlotRange' from a 'SlotRange'.
+slotToTimeInverseProp :: Property
+slotToTimeInverseProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    slotRange <- forAll Gen.genSlotRange
+    let slotRange' = TimeSlot.posixTimeRangeToContainedSlotRange sc (TimeSlot.slotRangeToPOSIXTimeRange sc slotRange)
+    Hedgehog.footnoteShow (slotRange, slotRange')
+    Hedgehog.assert $ slotRange == slotRange'
+
+-- | Inverse property between 'posixTimeRangeToContainedSlotRange' and
+-- 'slotRangeToPOSIXTimeRange' from a 'POSIXTimeRange'.
+timeToSlotInverseProp :: Property
+timeToSlotInverseProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    timeRange <- forAll $ Gen.genTimeRange sc
+    Hedgehog.assert $
+        Interval.contains
+            timeRange
+            (TimeSlot.slotRangeToPOSIXTimeRange sc (TimeSlot.posixTimeRangeToContainedSlotRange sc timeRange))
+
+-- | 'POSIXTimeRange' from 'Slot' should have lower bound lower or equal than upper bound
+slotToTimeRangeHasLowerAndUpperBoundsProp :: Property
+slotToTimeRangeHasLowerAndUpperBoundsProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    slot <- forAll Gen.genSlot
+    let (Interval (LowerBound t1 _) (UpperBound t2 _)) = TimeSlot.slotToPOSIXTimeRange sc slot
+    Hedgehog.assert $ t1 <= t2
+
+-- | Inverse property between 'slotToPOSIXTimeRange and 'posixTimeSlot'.
+--
+-- Given a slot 's', and the resulting time range [a,b] from
+-- 'slotToPOSIXTimeRange s', verify that 'posixTimeSlot a == s' and
+-- 'posixTimeSlot b == s'.
+slotToTimeRangeBoundsInverseProp :: Property
+slotToTimeRangeBoundsInverseProp = property $ do
+    sc <- forAll Gen.genSlotConfig
+    slot <- forAll Gen.genSlot
+    let slotRange = PlutusTx.fmap (TimeSlot.posixTimeToEnclosingSlot sc)
+                                  (TimeSlot.slotToPOSIXTimeRange sc slot)
+    Hedgehog.assert $ interval slot slot == slotRange

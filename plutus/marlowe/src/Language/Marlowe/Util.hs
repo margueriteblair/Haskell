@@ -16,9 +16,6 @@ import qualified PlutusTx.Prelude           as P
 instance IsString Party where
     fromString s = Role (fromString s)
 
-instance IsString ValueId where
-    fromString = ValueId . fromString
-
 
 ada :: Token
 ada = Token adaSymbol adaToken
@@ -48,8 +45,8 @@ getAccountsDiff :: [Payment] -> [Input] -> AccountsDiff
 getAccountsDiff payments inputs =
     foldl' (\acc (p, m) -> addAccountsDiff p m acc) emptyAccountsDiff (incomes ++ outcomes)
   where
-    incomes  = [ (p,  Val.singleton cur tok m) | IDeposit _ p (Token cur tok) m <- inputs ]
-    outcomes = [ (p, P.negate m) | Payment p m  <- payments ]
+    incomes  = [ (p, Val.singleton cur tok m) | IDeposit _ p (Token cur tok) m <- inputs ]
+    outcomes = [ (p, P.negate m) | Payment _ (Party p) m  <- payments ]
 
 
 foldMapContract :: Monoid m
@@ -84,6 +81,7 @@ foldMapContract fcont fcase fobs fvalue contract =
         AddValue a b -> fvalue' a <> fvalue' b
         SubValue a b -> fvalue' a <> fvalue' b
         MulValue a b -> fvalue' a <> fvalue' b
+        DivValue a b -> fvalue' a <> fvalue' b
         Scale _ val  -> fvalue' val
         Cond obs a b -> fobs' obs <> fvalue' a <> fvalue' b
         _            -> mempty

@@ -1,20 +1,25 @@
-{ crossSystem ? null
-, system ? builtins.currentSystem
-, config ? { allowUnfreePredicate = (import ./nix/lib/unfree.nix).unfreePredicate; }
-, rev ? "in-nix-shell"
-, sourcesOverride ? { }
-, packages ? import ./. { inherit crossSystem config sourcesOverride rev enableHaskellProfiling; }
+{ system ? builtins.currentSystem
 , enableHaskellProfiling ? false
+, packages ? import ./. { inherit system enableHaskellProfiling; }
 }:
 let
-  inherit (packages) pkgs plutus plutus-playground marlowe-playground plutus-pab marlowe-dashboard deployment docs;
+  inherit (packages) pkgs plutus plutus-playground marlowe-playground plutus-pab marlowe-dashboard fake-pab deployment docs;
   inherit (pkgs) stdenv lib utillinux python3 nixpkgs-fmt;
-  inherit (plutus) haskell agdaPackages stylish-haskell sphinxcontrib-haddock nix-pre-commit-hooks;
+  inherit (plutus) haskell agdaPackages stylish-haskell sphinxcontrib-haddock sphinx-markdown-tables sphinxemoji nix-pre-commit-hooks cardano-cli cardano-node;
   inherit (plutus) agdaWithStdlib;
   inherit (plutus) purty purty-pre-commit purs spargo;
 
   # For Sphinx, and ad-hoc usage
-  sphinxTools = python3.withPackages (ps: [ sphinxcontrib-haddock.sphinxcontrib-domaintools ps.sphinx ps.sphinx_rtd_theme ]);
+  sphinxTools = python3.withPackages (ps: [
+    sphinxcontrib-haddock.sphinxcontrib-domaintools
+    sphinx-markdown-tables
+    sphinxemoji
+    ps.sphinxcontrib_plantuml
+    ps.sphinxcontrib-bibtex
+    ps.sphinx
+    ps.sphinx_rtd_theme
+    ps.recommonmark
+  ]);
 
   # Configure project pre-commit hooks
   pre-commit-check = nix-pre-commit-hooks.run {
@@ -28,46 +33,62 @@ let
     hooks = {
       purty.enable = true;
       stylish-haskell.enable = true;
-      terraform-format.enable = true;
       nixpkgs-fmt = {
         enable = true;
         # While nixpkgs-fmt does exclude patterns specified in `.ignore` this
         # does not appear to work inside the hook. For now we have to thus
         # maintain excludes here *and* in `./.ignore` and *keep them in sync*.
-        excludes = [ ".*nix/pkgs/haskell/materialized.*/.*" ".*nix/sources.nix$" ".*/spago-packages.nix$" ".*/packages.nix$" ];
+        excludes = [ ".*nix/pkgs/haskell/materialized.*/.*" ".*/spago-packages.nix$" ".*/packages.nix$" ];
       };
       shellcheck.enable = true;
+      png-optimization = {
+        enable = true;
+        name = "png-optimization";
+        description = "Ensure that PNG files are optimized";
+        entry = "${pkgs.optipng}/bin/optipng";
+        files = "\\.png$";
+      };
     };
   };
 
+  nixFlakesAlias = pkgs.runCommand "nix-flakes-alias" { } ''
+    mkdir -p $out/bin
+    ln -sv ${pkgs.nixFlakes}/bin/nix $out/bin/nix-flakes
+  '';
+
   # build inputs from nixpkgs ( -> ./nix/default.nix )
   nixpkgsInputs = (with pkgs; [
-    # pkgs.sqlite-analyzer -- Broken on 20.03, needs a backport
-    awscli
     cacert
+    editorconfig-core-c
     ghcid
+    jq
     morph
-    niv
+    nixFlakesAlias
     nixpkgs-fmt
     nodejs
-    pass
     shellcheck
     sqlite-interactive
     stack
-    terraform
+    yq
     z3
     zlib
+    nodePackages.purescript-language-server
   ] ++ (lib.optionals (!stdenv.isDarwin) [ rPackages.plotly R ]));
 
   # local build inputs ( -> ./nix/pkgs/default.nix )
   localInputs = (with plutus; [
     aws-mfa-login
     cabal-install
+    cardano-repo-tool
+    fixPngOptimization
     fixPurty
     fixStylishHaskell
     haskell-language-server
+    haskell-language-server-wrapper
     hie-bios
     hlint
+    marlowe-dashboard.generate-purescript
+    marlowe-dashboard.start-backend
     marlowe-playground.generate-purescript
     marlowe-playground.start-backend
     plutus-playground.generate-purescript
@@ -76,13 +97,14 @@ let
     plutus-pab.migrate
     plutus-pab.start-backend
     plutus-pab.start-all-servers
+    plutus-pab.start-all-servers-m
     purs
     purty
     spago
     stylish-haskell
     updateMaterialized
     updateClientDeps
-    updateMetadataSamples
+    docs.build-and-serve-docs
   ]);
 
 in
@@ -108,7 +130,6 @@ haskell.project.shellFor {
   # We also use it in a deployment hack.
   # We have a local passwords store that we use for deployments etc.
   + ''
-    #export PLUTUS_ROOT=$(pwd)
-    #export PASSWORD_STORE_DIR="$(pwd)/secrets"
+    export ACTUS_TEST_DATA_DIR=${packages.actus-tests}/tests/
   '';
 }

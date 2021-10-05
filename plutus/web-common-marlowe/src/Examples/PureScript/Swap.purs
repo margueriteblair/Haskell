@@ -1,19 +1,41 @@
 module Examples.PureScript.Swap
   ( contractTemplate
+  , fullExtendedContract
   , metaData
-  , extendedContract
+  , fixedTimeoutContract
+  , defaultSlotContent
   ) where
 
 import Prelude
-import Data.BigInteger (fromInt)
+import Data.BigInteger (BigInteger, fromInt)
+import Data.Map as Map
+import Data.Map (Map)
+import Data.Tuple.Nested ((/\))
 import Examples.Metadata as Metadata
 import Marlowe.Extended (Action(..), Case(..), Contract(..), Payee(..), Timeout(..), Value(..))
-import Marlowe.Extended.Metadata (MetaData)
-import Marlowe.Extended.Template (ContractTemplate)
+import Marlowe.Extended.Metadata (MetaData, ContractTemplate)
+import Marlowe.Template (TemplateContent(..), fillTemplate)
 import Marlowe.Semantics (Party(..), Token(..))
 
 contractTemplate :: ContractTemplate
-contractTemplate = { metaData, extendedContract }
+contractTemplate = { metaData, extendedContract: fullExtendedContract }
+
+fixedTimeoutContract :: Contract
+fixedTimeoutContract =
+  fillTemplate
+    ( TemplateContent
+        { slotContent: defaultSlotContent
+        , valueContent: Map.empty
+        }
+    )
+    fullExtendedContract
+
+defaultSlotContent :: Map String BigInteger
+defaultSlotContent =
+  Map.fromFoldable
+    [ "Timeout for Ada deposit" /\ fromInt 600
+    , "Timeout for dollar deposit" /\ fromInt 1200
+    ]
 
 metaData :: MetaData
 metaData = Metadata.swap
@@ -74,8 +96,8 @@ makeDeposit src timeout timeoutContinuation continuation =
 makePayment :: SwapParty -> SwapParty -> Contract -> Contract
 makePayment src dest continuation = Pay src.party (Party $ dest.party) src.currency src.amount continuation
 
-extendedContract :: Contract
-extendedContract =
+fullExtendedContract :: Contract
+fullExtendedContract =
   makeDeposit adaProvider adaDepositTimeout Close
     $ makeDeposit dollarProvider dollarDepositTimeout Close
     $ makePayment adaProvider dollarProvider

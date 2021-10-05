@@ -17,6 +17,7 @@ module PSGenerator
 import qualified API
 import qualified Auth
 import qualified ContractForDifferences
+import qualified ContractForDifferencesWithOracle
 import           Control.Applicative                              ((<|>))
 import           Control.Lens                                     (set, (&))
 import           Control.Monad.Reader                             (MonadReader)
@@ -47,9 +48,11 @@ import           Language.PureScript.Bridge.Builder               (BridgeData)
 import           Language.PureScript.Bridge.CodeGenSwitches       (ForeignOptions (ForeignOptions), defaultSwitch,
                                                                    genForeign)
 import           Language.PureScript.Bridge.PSTypes               (psNumber, psString)
-import           Language.PureScript.Bridge.TypeParameters        (A)
-import           Marlowe.Contracts                                (contractForDifferences, couponBondGuaranteed, escrow,
-                                                                   escrowWithCollateral, example, swap, zeroCouponBond)
+import           Language.PureScript.Bridge.TypeParameters        (A, B)
+import           Marlowe.Contracts                                (contractForDifferences,
+                                                                   contractForDifferencesWithOracle,
+                                                                   couponBondGuaranteed, escrow, escrowWithCollateral,
+                                                                   example, swap, zeroCouponBond)
 import qualified Marlowe.Symbolic.Server                          as MS
 import qualified Marlowe.Symbolic.Types.Request                   as MSReq
 import qualified Marlowe.Symbolic.Types.Response                  as MSRes
@@ -116,6 +119,9 @@ doubleBridge = typeName ^== "Double" >> return psNumber
 dayBridge :: BridgePart
 dayBridge = typeName ^== "Day" >> return psString
 
+timeBridge :: BridgePart
+timeBridge = typeName ^== "LocalTime" >> return psString
+
 myBridge :: BridgePart
 myBridge =
     PSGenerator.Common.aesonBridge <|> PSGenerator.Common.containersBridge <|>
@@ -125,6 +131,7 @@ myBridge =
     PSGenerator.Common.miscBridge <|>
     doubleBridge <|>
     dayBridge <|>
+    timeBridge <|>
     contractBridge <|>
     stateBridge <|>
     transactionInputBridge <|>
@@ -152,9 +159,9 @@ myTypes =
     , (genericShow <*> mkSumType) (Proxy @MSRes.Response)
     , (genericShow <*> mkSumType) (Proxy @MSRes.Result)
     , mkSumType (Proxy @MSReq.Request)
-    , mkSumType (Proxy @CT.ContractTerms)
+    , mkSumType (Proxy :: Proxy (CT.ContractTermsPoly A B))
     , mkSumType (Proxy @CT.PYTP)
-    , mkSumType (Proxy @CT.PREF)
+    , mkSumType (Proxy @CT.PPEF)
     , mkSumType (Proxy @CT.SCEF)
     , mkSumType (Proxy @CT.Cycle)
     , mkSumType (Proxy @CT.Period)
@@ -163,11 +170,12 @@ myTypes =
     , mkSumType (Proxy @CT.DCC)
     , mkSumType (Proxy @CT.BDC)
     , mkSumType (Proxy @CT.EOMC)
-    , mkSumType (Proxy @CT.ContractStatus)
+    , mkSumType (Proxy @CT.PRF)
     , mkSumType (Proxy @CT.FEB)
     , mkSumType (Proxy @CT.IPCB)
-    , mkSumType (Proxy @CT.ContractRole)
-    , mkSumType (Proxy @CT.ContractType)
+    , mkSumType (Proxy @CT.CR)
+    , mkSumType (Proxy @CT.CT)
+    , mkSumType (Proxy @CT.Calendar)
     , mkSumType (Proxy @CT.Assertion)
     , mkSumType (Proxy @CT.Assertions)
     , mkSumType (Proxy @CT.AssertionContext)
@@ -196,6 +204,7 @@ writeUsecases outputDir = do
          <> multilineString "couponBondGuaranteed" couponBondGuaranteed
          <> multilineString "swap" swap
          <> multilineString "contractForDifferences" contractForDifferences
+         <> multilineString "contractForDifferencesWithOracle" contractForDifferencesWithOracle
         haskellUsecasesModule = psModule "Examples.Haskell.Contracts" haskellUsecases
     createDirectoryIfMissing True (outputDir </> "Examples" </> "Haskell")
     BS.writeFile (outputDir </> "Examples" </> "Haskell" </> "Contracts.purs") haskellUsecasesModule
@@ -208,6 +217,7 @@ writeUsecases outputDir = do
          <> multilineString "couponBondGuaranteed" (contractToString CouponBondGuaranteed.contract)
          <> multilineString "swap" (contractToString Swap.contract)
          <> multilineString "contractForDifferences" (contractToString ContractForDifferences.contract)
+         <> multilineString "contractForDifferencesWithOracle" (contractToString ContractForDifferencesWithOracle.contract)
         marloweUsecasesModule = psModule "Examples.Marlowe.Contracts" marloweUsecases
     createDirectoryIfMissing True (outputDir </> "Examples" </> "Marlowe")
     BS.writeFile (outputDir </> "Examples" </> "Marlowe" </> "Contracts.purs") marloweUsecasesModule
@@ -239,7 +249,7 @@ writePangramJson outputDir = do
                         )
                     , S.Case (S.Choice choiceId [ S.Bound 0 1 ])
                         ( S.If (S.ChoseSomething choiceId `S.OrObs` (S.ChoiceValue choiceId `S.ValueEQ` S.Scale (1 S.% 10) const100))
-                            (S.Pay alicePk (S.Account alicePk) token (S.AvailableMoney alicePk token) S.Close)
+                            (S.Pay alicePk (S.Account alicePk) token (S.DivValue (S.AvailableMoney alicePk token) const100) S.Close)
                             S.Close
                         )
                     , S.Case (S.Notify (S.AndObs (S.SlotIntervalStart `S.ValueLT` S.SlotIntervalEnd) S.TrueObs)) S.Close

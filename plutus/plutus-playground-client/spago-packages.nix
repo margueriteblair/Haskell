@@ -29,6 +29,18 @@ let
         installPhase = "ln -s $src $out";
       };
 
+    "aff-promise" = pkgs.stdenv.mkDerivation {
+        name = "aff-promise";
+        version = "v2.1.0";
+        src = pkgs.fetchgit {
+          url = "https://github.com/nwolverson/purescript-aff-promise.git";
+          rev = "033d6b90252e0390b0de7845e21de919bc4c3a0e";
+          sha256 = "0khm53lvxgvc7fbsvcr2h2wlhcgay8vq45755f0w8vpk1441dvww";
+        };
+        phases = "installPhase";
+        installPhase = "ln -s $src $out";
+      };
+
     "affjax" = pkgs.stdenv.mkDerivation {
         name = "affjax";
         version = "v10.0.0";
@@ -1207,11 +1219,11 @@ let
 
     "uuid" = pkgs.stdenv.mkDerivation {
         name = "uuid";
-        version = "v6.1.0";
+        version = "v8.0.0";
         src = pkgs.fetchgit {
           url = "https://github.com/spicydonuts/purescript-uuid.git";
-          rev = "e5d74beef8b33aad9f9b0824950152c46ac2c7f1";
-          sha256 = "1ldrhjavv9vngdnh9i7pbg93iwaslrs6rfcv8jh5cjywpin8n6zx";
+          rev = "b99a5e66235d773cdd45657ff3d3c320ecf3711a";
+          sha256 = "0b6swi5xxgjsps70ci2v4mr3yrqrb7gb0smmia0iq2w077j92d89";
         };
         phases = "installPhase";
         installPhase = "ln -s $src $out";

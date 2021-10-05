@@ -1,10 +1,13 @@
 \begin{code}
+{-# OPTIONS --rewriting #-}
+
 module Algorithmic.Evaluation where
 \end{code}
 
 ## Imports
 
 \begin{code}
+open import Utils
 open import Type
 open import Type.BetaNormal
 open import Algorithmic

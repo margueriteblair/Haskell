@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE MultiWayIf        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -10,20 +11,18 @@
 -- | Functions for compiling GHC Core expressions into Plutus Core terms.
 module PlutusTx.Compiler.Expr (compileExpr, compileExprWithDefs, compileDataConRef) where
 
+import qualified PlutusTx.Builtins             as Builtins
 import           PlutusTx.Compiler.Binders
 import           PlutusTx.Compiler.Builtins
 import           PlutusTx.Compiler.Error
 import           PlutusTx.Compiler.Laziness
 import           PlutusTx.Compiler.Names
-import           PlutusTx.Compiler.Primitives
 import           PlutusTx.Compiler.Type
 import           PlutusTx.Compiler.Types
 import           PlutusTx.Compiler.Utils
 import           PlutusTx.PIRTypes
-
-import qualified PlutusTx.Builtins             as Builtins
 -- I feel like we shouldn't need this, we only need it to spot the special String type, which is annoying
-import qualified PlutusTx.String               as String
+import qualified PlutusTx.Builtins.Class       as Builtins
 
 import qualified Class                         as GHC
 import qualified FV                            as GHC
@@ -33,14 +32,16 @@ import qualified PrelNames                     as GHC
 
 import qualified PlutusIR                      as PIR
 import qualified PlutusIR.Compiler.Definitions as PIR
-import           PlutusIR.Compiler.Names
+import           PlutusIR.Compiler.Names       (safeFreshName)
+import           PlutusIR.Core.Type            (Term (..))
 import qualified PlutusIR.MkPir                as PIR
 import qualified PlutusIR.Purity               as PIR
 
 import qualified PlutusCore                    as PLC
 import qualified PlutusCore.MkPlc              as PLC
+import qualified PlutusCore.Pretty             as PP
 
-import           Control.Monad.Reader
+import           Control.Monad.Reader          (MonadReader (ask))
 
 import qualified Data.ByteString               as BS
 import           Data.List                     (elemIndex)
@@ -67,6 +68,9 @@ GHC's literals and primitives are a bit of a pain, since they not only have a Li
 containing the actual data, but are wrapped in special functions (often ending in the magic #).
 
 This is a pain to recognize.
+
+Fortunately, in practice the only kind of literals we need to deal with directly are integer literals.
+String literals are handled specially, see Note [String literals].
 -}
 
 {- Note [unpackFoldrCString#]
@@ -83,39 +87,19 @@ So we use a horrible hack and match on `build . unpackFoldrCString#` to "undo" t
 rule.
 -}
 
-{- Note [Addr#]
-String literals usually have type `Addr#`. This is not very nice for us, since we certainly don't have
-those.
-
-However, they should only appear wrapped by an `unpackCString#` or similar. Except if the string literal
-gets lifted out by GHC! This is no problem for our compiler, we will just compile the literal as a binding
-and put in a reference... except that the binding would need to be of type `Addr#`.
-
-So we use another horrible hack and pretend that `Addr#` is `String`, since we treat `unpackCString#` as doing nothing.
--}
-
 compileLiteral
     :: CompilingDefault uni fun m
     => GHC.Literal -> m (PIRTerm uni fun)
 compileLiteral = \case
     -- Just accept any kind of number literal, we'll complain about types we don't support elsewhere
     (GHC.LitNumber _ i _) -> pure $ PIR.embed $ PLC.mkConstant () i
-    GHC.LitString bs      ->
-        -- Convert the bytestring into a core expression representing the list
-        -- of characters, then compile that!
-        -- Note that we do *not* convert this into a PLC string, but rather a list of characters,
-        -- since that is what other Haskell code will expect.
-        let
-            str = T.unpack $ TE.decodeUtf8 bs
-            charExprs = fmap GHC.mkCharExpr str
-            listExpr = GHC.mkListExpr GHC.charTy charExprs
-        in compileExpr listExpr
-    GHC.LitChar c      -> pure $ PIR.embed $ PLC.mkConstant () c
-    GHC.LitFloat _     -> throwPlain $ UnsupportedError "Literal float"
-    GHC.LitDouble _    -> throwPlain $ UnsupportedError "Literal double"
-    GHC.LitLabel {}    -> throwPlain $ UnsupportedError "Literal label"
-    GHC.LitNullAddr    -> throwPlain $ UnsupportedError "Literal null"
-    GHC.LitRubbish     -> throwPlain $ UnsupportedError "Literal rubbish"
+    GHC.LitString _       -> throwPlain $ UnsupportedError "Literal string (maybe you need to use OverloadedStrings)"
+    GHC.LitChar _         -> throwPlain $ UnsupportedError "Literal char"
+    GHC.LitFloat _        -> throwPlain $ UnsupportedError "Literal float"
+    GHC.LitDouble _       -> throwPlain $ UnsupportedError "Literal double"
+    GHC.LitLabel {}       -> throwPlain $ UnsupportedError "Literal label"
+    GHC.LitNullAddr       -> throwPlain $ UnsupportedError "Literal null"
+    GHC.LitRubbish        -> throwPlain $ UnsupportedError "Literal rubbish"
 
 -- TODO: this is annoyingly duplicated with the code 'compileExpr', but I failed to unify them since they
 -- do different things to the inner expression. This one assumes it's a literal, the other one keeps compiling
@@ -327,8 +311,8 @@ is transparently equal to '[Char]', it is *not* opaque.
 So we can't just replace GHC's 'String' with PLC's 'String' wholesale. Otherwise things will
 behave quite weirdly with things that expect 'String' to be a list. (We want to be type-preserving!)
 
-However, we can get from GHC's 'String' to our 'String' using 'IsString'. This is fine:
-we turn string literals into lists of characters, and then we fold over the list adding them
+However, we can get from GHC's 'String' to our 'String' using 'IsString'. This is fine in theory:
+we can turn string literals into lists of characters, and then fold over the list adding them
 into a big string. But it's bad for two reasons:
 - We have to actually do the fold.
 - The string literal is there in the generated code as a list of characters, which is pretty big.
@@ -351,6 +335,52 @@ This is very fiddly:
 It's also annoying since this is the first time that we have to look for a marker function inside
 the plugin compilation mode, so we have a special function that's not a builtin (in that it doesn't
 just get turned into a function in PLC).
+-}
+
+{- Note [Unboxed tuples]
+This note describes the support of unboxed tuples which are different from boxed tuples.
+The difference between boxed and unboxed types is available in GHC manual
+https://downloads.haskell.org/ghc/latest/docs/html/users_guide/exts/primitives.html#unboxed-type-kinds
+
+Boxed tuples have kind '* -> * -> *' and can be compiled as normal datatypes. But unboxed tuples
+involve types which are not of kind `*`, and moreover are *polymorphic* in their runtime representation. This requires extra work on all levels: kind, type and term.
+
+For example, the kind of '(# a , b #)' is
+```
+forall k0 k1 . TYPE k0 -> TYPE k1 -> TYPE ('GHC.Types.TupleRep '[k0, k1])
+```
+where 'a' and 'b' are some types and `[k0, k1]` are type variables standing for runtime representations.
+
+Suppose that 'a = b = Integer', a boxed type, then the kind of '(# Integer, Integer #)' is
+```
+TYPE 'GHC.Types.LiftedRep -> TYPE 'GHC.Types.LiftedRep -> TYPE ('GHC.Types.TupleRep '[ 'GHC.Types.LiftedRep, 'GHC.Types.LiftedRep])
+```
+
+As Plutus has no different runtime representations, the overall strategy is consider `Type rep` to always be `Type LiftedRep`, which becomes `Type` on the Plutus side.
+on all levels and match any 'TYPE rep' to the usual Plutus type.
+
+To do this, we do the following:
+
+1. 'compileKind' uses 'splitForAllTy_maybe' to match on the forall type with 'RuntimeRep' type variable
+that surrounds unboxed tuple, ignores it by calling 'compileKind' on the inner type:
+
+```
+compileKind( forall k0 k1 .TYPE k0 -> TYPE k1 -> TYPE ('GHC.Types.TupleRep '[k0, k1]) )
+~> compileKind( TYPE k0 -> TYPE k1 -> TYPE ('GHC.Types.TupleRep '[k0, k1]) )
+```
+
+And then uses `classifiesTypeWithValues` to match `TYPE rep` to PLC Type.
+
+2. We ignore 'RuntimeRep' type arguments:
+- using 'dropRuntimeRepArgs' in 'compileType' and 'getMatchInstantiated'
+to handle the initial runtime rep arguments in a 'TyCon' application  of `(#,#)';
+
+- using 'dropRuntimeRepVars' in 'compileTyCon' to ignore 'RuntimeRep' type variables
+and to compile the kind of '(#,#)' properly.
+
+3. 'compileExpr' uses 'isRuntimeRepKindedTy' to match on type application and to ignore
+'RuntimeRep' type arguments.
+
 -}
 
 hoistExpr
@@ -376,7 +406,16 @@ hoistExpr var t =
                     (PIR.Def var' (PIR.mkVar () var', PIR.Strict))
                     mempty
 
-                t' <- compileExpr t
+                CompileContext {ccOpts=profileOpts} <- ask
+                t' <-
+                    if coProfile profileOpts==All then do
+                        let ty = PLC._varDeclType var'
+                            varName = PLC._varDeclName var'
+                        t'' <- compileExpr t
+                        thunk <- PLC.freshName "thunk"
+                        pure $
+                            traceInside varName thunk t'' ty
+                    else compileExpr t
 
                 -- See Note [Non-strict let-bindings]
                 let strict = PIR.isPure (const PIR.NonStrict) t'
@@ -393,6 +432,48 @@ hoistExpr var t =
                     (Set.map LexName deps)
                 pure $ PIR.mkVar () var'
 
+mkTrace
+    :: (PLC.Contains uni T.Text)
+    => PLC.Type PLC.TyName uni ()
+    -> T.Text
+    -> PIRTerm uni PLC.DefaultFun
+    -> PIRTerm uni PLC.DefaultFun
+mkTrace ty str v =
+    PLC.mkIterApp
+        ()
+        (PIR.TyInst () (PIR.Builtin () PLC.Trace) ty)
+        [PLC.mkConstant () str, v]
+
+-- | Trace inside a term's lambda. I.e., turn
+-- @trace (\a b -> body)@ to @\a -> \b -> trace body@.
+traceInside ::
+    PLC.Name
+    -> PIR.Name
+    -> PIRTerm PLC.DefaultUni PLC.DefaultFun
+    -> PLC.Type PIR.TyName PLC.DefaultUni ()
+    -> PIRTerm PLC.DefaultUni PLC.DefaultFun
+traceInside varName lamName = go
+    where
+        go (LamAbs () n t body) (PLC.TyFun () _dom cod) =
+        -- when t = \x -> body, => \x -> traceInside body
+            LamAbs () n t (traceInside varName lamName body cod)
+        go LamAbs{} _ =
+            error "traceInside: type mismatched. It should be a function type."
+        go e ty =
+            let defaultUnitTy = PLC.TyBuiltin () (PLC.SomeTypeIn PLC.DefaultUniUnit)
+                defaultUnit = PIR.Constant () (PLC.someValueOf PLC.DefaultUniUnit ())
+                displayName = T.pack $ PP.displayPlcDef varName
+            in
+            --(trace @(() -> c) "entering f" (\() -> trace @c "exiting f" body) ())
+                PIR.Apply
+                    ()
+                    (mkTrace
+                        (PLC.TyFun () defaultUnitTy ty) -- ()-> ty
+                        ("entering " <> displayName)
+                        -- \() -> trace @c "exiting f" e
+                        (LamAbs () lamName defaultUnitTy (mkTrace ty ("exiting "<>displayName) e)))
+                    defaultUnit
+
 -- Expressions
 
 compileExpr
@@ -403,25 +484,43 @@ compileExpr e = withContextM 2 (sdToTxt $ "Compiling expr:" GHC.<+> GHC.ppr e) $
     CompileContext {ccScopes=stack,ccBuiltinNameInfo=nameInfo} <- ask
 
     -- TODO: Maybe share this to avoid repeated lookups. Probably cheap, though.
-    (stringTyName, sbsName) <- case (Map.lookup ''Builtins.String nameInfo, Map.lookup 'String.stringToBuiltinString nameInfo) of
-        (Just t1, Just t2) -> pure $ (GHC.getName t1, GHC.getName t2)
+    (stringTyName, sbsName) <- case (Map.lookup ''Builtins.BuiltinString nameInfo, Map.lookup 'Builtins.stringToBuiltinString nameInfo) of
+        (Just t1, Just t2) -> pure (GHC.getName t1, GHC.getName t2)
         _                  -> throwPlain $ CompilationError "No info for String builtin"
+
+    (bsTyName, sbbsName) <- case (Map.lookup ''Builtins.BuiltinByteString nameInfo, Map.lookup 'Builtins.stringToBuiltinByteString nameInfo) of
+        (Just t1, Just t2) -> pure (GHC.getName t1, GHC.getName t2)
+        _                  -> throwPlain $ CompilationError "No info for ByteString builtin"
 
     let top = NE.head stack
     case e of
         -- See Note [String literals]
-        -- 'fromString' invocation at the builtin String type
-        (strip -> GHC.Var (GHC.idDetails -> GHC.ClassOpId cls)) `GHC.App` GHC.Type (GHC.tyConAppTyCon_maybe -> Just tc) `GHC.App` _ `GHC.App` (strip -> stringExprContent -> Just bs)
-            | GHC.getName cls == GHC.isStringClassName, GHC.getName tc == stringTyName -> do
-                let str = T.unpack $ TE.decodeUtf8 bs
-                pure $ PIR.Constant () $ PLC.someValue str
+        -- IsString has only one method, so it's enough to know that it's an IsString method to know we're looking at fromString
+        -- We can safely commit to this match as soon as we've seen fromString - we won't accept any applications of fromString that aren't creating literals
+        -- of our builtin types.
+        (strip -> GHC.Var (GHC.idDetails -> GHC.ClassOpId cls)) `GHC.App` GHC.Type ty `GHC.App` _ `GHC.App` content | GHC.getName cls == GHC.isStringClassName ->
+            case GHC.tyConAppTyCon_maybe ty of
+                Just tc -> case stringExprContent (strip content) of
+                    Just bs ->
+                        if | GHC.getName tc == bsTyName     -> pure $ PIR.Constant () $ PLC.someValue bs
+                           | GHC.getName tc == stringTyName -> case TE.decodeUtf8' bs of
+                                 Right t -> pure $ PIR.Constant () $ PLC.someValue t
+                                 Left err -> throwPlain $ CompilationError $ "Text literal with invalid UTF-8 content: " <> (T.pack $ show err)
+                           | otherwise -> throwSd UnsupportedError $ "Use of fromString on type other than builtin strings or bytestrings:" GHC.<+> GHC.ppr ty
+                    Nothing -> throwSd CompilationError $ "Use of fromString with inscrutable content:" GHC.<+> GHC.ppr content
+                Nothing -> throwSd UnsupportedError $ "Use of fromString on type other than builtin strings or bytestrings:" GHC.<+> GHC.ppr ty
+        -- 'stringToBuiltinByteString' invocation, will be wrapped in a 'noinline'
+        (strip -> GHC.Var n) `GHC.App` (strip -> stringExprContent -> Just bs) | GHC.getName n == sbbsName ->
+                pure $ PIR.Constant () $ PLC.someValue bs
         -- 'stringToBuiltinString' invocation, will be wrapped in a 'noinline'
-        (strip -> GHC.Var n) `GHC.App` (strip -> stringExprContent -> Just bs) | GHC.getName n == sbsName -> do
-                let str = T.unpack $ TE.decodeUtf8 bs
-                pure $ PIR.Constant () $ PLC.someValue str
+        (strip -> GHC.Var n) `GHC.App` (strip -> stringExprContent -> Just bs) | GHC.getName n == sbsName ->
+                case TE.decodeUtf8' bs of
+                    Right t -> pure $ PIR.Constant () $ PLC.someValue t
+                    Left err -> throwPlain $ CompilationError $ "Text literal with invalid UTF-8 content: " <> (T.pack $ show err)
 
         -- See Note [Literals]
         GHC.Lit lit -> compileLiteral lit
+        -- These are all wrappers around string and char literals, but keeping them allows us to give better errors
         -- unpackCString# is just a wrapper around a literal
         GHC.Var n `GHC.App` expr | GHC.getName n == GHC.unpackCStringName -> compileExpr expr
         -- See Note [unpackFoldrCString#]
@@ -438,6 +537,9 @@ compileExpr e = withContextM 2 (sdToTxt $ "Compiling expr:" GHC.<+> GHC.ppr e) $
         GHC.Var n `GHC.App` GHC.Type _ `GHC.App` arg | GHC.getName n == GHC.noinlineIdName -> compileExpr arg
 
         -- See note [GHC runtime errors]
+        -- <error func> <runtime rep> <overall type> <call stack> <message>
+        GHC.Var (isErrorId -> True) `GHC.App` _ `GHC.App` GHC.Type t `GHC.App` _ `GHC.App` _ ->
+            PIR.TyInst () <$> errorFunc <*> compileTypeNorm t
         -- <error func> <runtime rep> <overall type> <message>
         GHC.Var (isErrorId -> True) `GHC.App` _ `GHC.App` GHC.Type t `GHC.App` _ ->
             PIR.TyInst () <$> errorFunc <*> compileTypeNorm t
@@ -454,7 +556,6 @@ compileExpr e = withContextM 2 (sdToTxt $ "Compiling expr:" GHC.<+> GHC.ppr e) $
         GHC.Var (lookupName top . GHC.getName -> Just var) -> pure $ PIR.mkVar () var
 
         -- Special kinds of id
-        GHC.Var (GHC.idDetails -> GHC.PrimOpId po) -> compilePrimitiveOp po
         GHC.Var (GHC.idDetails -> GHC.DataConWorkId dc) -> compileDataConRef dc
 
         -- See Note [Unfoldings]
@@ -483,13 +584,15 @@ compileExpr e = withContextM 2 (sdToTxt $ "Compiling expr:" GHC.<+> GHC.ppr e) $
                     GHC.$+$ (GHC.ppr $ GHC.idDetails n)
                     GHC.$+$ (GHC.ppr $ GHC.realIdUnfolding n)
 
+        -- ignoring applications to types of 'RuntimeRep' kind, see Note [Unboxed tuples]
+        l `GHC.App` GHC.Type t | GHC.isRuntimeRepKindedTy t -> compileExpr l
         -- arg can be a type here, in which case it's a type instantiation
         l `GHC.App` GHC.Type t -> PIR.TyInst () <$> compileExpr l <*> compileTypeNorm t
         -- otherwise it's a normal application
         l `GHC.App` arg -> PIR.Apply () <$> compileExpr l <*> compileExpr arg
         -- if we're biding a type variable it's a type abstraction
         GHC.Lam b@(GHC.isTyVar -> True) body -> mkTyAbsScoped b $ compileExpr body
-        -- othewise it's a normal lambda
+        -- otherwise it's a normal lambda
         GHC.Lam b body -> mkLamAbsScoped b $ compileExpr body
 
         GHC.Let (GHC.NonRec b arg) body -> do
@@ -538,7 +641,7 @@ compileExpr e = withContextM 2 (sdToTxt $ "Compiling expr:" GHC.<+> GHC.ppr e) $
                 isPureAlt <- forM dcs $ \dc ->
                     let (_, vars, body) = findAlt dc alts t
                     in if null vars then PIR.isPure (const PIR.NonStrict) <$> compileExpr body else pure True
-                let lazyCase = not $ and isPureAlt
+                let lazyCase = not (and isPureAlt || length dcs == 1)
 
                 match <- getMatchInstantiated scrutineeType
                 let matched = PIR.Apply () match scrutinee'

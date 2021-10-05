@@ -19,7 +19,7 @@ module Plutus.Contracts.MultiSig
     , MultiSigSchema
     , contract
     , lock
-    , scriptInstance
+    , typedValidator
     , validate
     ) where
 
@@ -32,15 +32,14 @@ import           Ledger.Contexts          as V
 import qualified Ledger.Typed.Scripts     as Scripts
 import           Plutus.Contract
 import qualified Plutus.Contract.Typed.Tx as Tx
-import qualified PlutusTx                 as PlutusTx
+import qualified PlutusTx
 import           PlutusTx.Prelude         hiding (Semigroup (..), foldMap)
 
-import           Prelude                  (Semigroup (..), foldMap)
+import           Prelude                  as Haskell (Semigroup (..), Show, foldMap)
 
 type MultiSigSchema =
-    BlockchainActions
-        .\/ Endpoint "lock" (MultiSig, Value)
-        .\/ Endpoint "unlock" (MultiSig, [PubKeyHash])
+        Endpoint "lock" (MultiSig, Value)
+        .\/ Endpoint "unlock" (MultiSig, [PubKey])
 
 data MultiSig =
         MultiSig
@@ -55,20 +54,20 @@ data MultiSig =
 PlutusTx.makeLift ''MultiSig
 
 contract :: AsContractError e => Contract () MultiSigSchema e ()
-contract = (lock `select` unlock) >> contract
+contract = selectList [lock, unlock] >> contract
 
 {-# INLINABLE validate #-}
-validate :: MultiSig -> () -> () -> ValidatorCtx -> Bool
+validate :: MultiSig -> () -> () -> ScriptContext -> Bool
 validate MultiSig{signatories, minNumSignatures} _ _ p =
-    let present = length (filter (V.txSignedBy (valCtxTxInfo p)) signatories)
+    let present = length (filter (V.txSignedBy (scriptContextTxInfo p)) signatories)
     in traceIfFalse "not enough signatures" (present >= minNumSignatures)
 
-instance Scripts.ScriptType MultiSig where
+instance Scripts.ValidatorTypes MultiSig where
     type instance RedeemerType MultiSig = ()
     type instance DatumType MultiSig = ()
 
-scriptInstance :: MultiSig -> Scripts.ScriptInstance MultiSig
-scriptInstance = Scripts.validatorParam @MultiSig
+typedValidator :: MultiSig -> Scripts.TypedValidator MultiSig
+typedValidator = Scripts.mkTypedValidatorParam @MultiSig
     $$(PlutusTx.compile [|| validate ||])
     $$(PlutusTx.compile [|| wrap ||])
     where
@@ -76,20 +75,21 @@ scriptInstance = Scripts.validatorParam @MultiSig
 
 
 -- | Lock some funds in a 'MultiSig' contract.
-lock :: AsContractError e => Contract () MultiSigSchema e ()
-lock = do
-    (ms, vl) <- endpoint @"lock"
+lock :: AsContractError e => Promise () MultiSigSchema e ()
+lock = endpoint @"lock" $ \(ms, vl) -> do
     let tx = Constraints.mustPayToTheScript () vl
-    let inst = scriptInstance ms
+    let inst = typedValidator ms
     void $ submitTxConstraints inst tx
 
 -- | The @"unlock"@ endpoint, unlocking some funds with a list
 --   of signatures.
-unlock :: AsContractError e => Contract () MultiSigSchema e ()
-unlock = do
-    (ms, pks) <- endpoint @"unlock"
-    let inst = scriptInstance ms
-    utx <- utxoAt (Scripts.scriptAddress inst)
+unlock :: AsContractError e => Promise () MultiSigSchema e ()
+unlock = endpoint @"unlock" $ \(ms, pks) -> do
+    let inst = typedValidator ms
+    utx <- utxosAt (Scripts.validatorAddress inst)
     let tx = Tx.collectFromScript utx ()
-                <> foldMap Constraints.mustBeSignedBy pks
-    void $ submitTxConstraintsSpending inst utx tx
+                <> foldMap (Constraints.mustBeSignedBy . pubKeyHash) pks
+        lookups = Constraints.typedValidatorLookups inst
+                <> Constraints.unspentOutputs utx
+                <> foldMap Constraints.pubKey pks
+    void $ submitTxConstraintsWith lookups tx

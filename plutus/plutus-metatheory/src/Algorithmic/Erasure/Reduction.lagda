@@ -1,10 +1,13 @@
 \begin{code}
+{-# OPTIONS --rewriting #-}
+
 module Algorithmic.Erasure.Reduction where
 \end{code}
 
 \begin{code}
 open import Function
 
+open import Utils
 open import Type
 open import Type.BetaNormal
 open import Algorithmic as A
@@ -18,8 +21,6 @@ open import Builtin
 open import Builtin.Constant.Type
 open import Builtin.Constant.Term Ctx⋆ Kind * _⊢Nf⋆_ con
 open import Untyped
-open import Builtin.Signature Ctx⋆ Kind
-  ∅ _,⋆_ * _∋⋆_ Z S _⊢Nf⋆_ (ne ∘ `) con
 open import Type.BetaNBE.RenamingSubstitution
 open import Data.Sum
 open import Relation.Binary.PropositionalEquality hiding ([_])
@@ -36,15 +37,15 @@ import Data.Bool as B
 \end{code}
 
 \begin{code}
-eraseCtx : ∀{Φ}(Γ : Ctx Φ) → U.Bwd U.Label
-eraseCtx ∅        = U.[]
-eraseCtx (Γ ,⋆ J) = eraseCtx Γ U.:< U.Type
-eraseCtx (Γ , A)  = eraseCtx Γ U.:< U.Term
+eraseCtx : ∀{Φ}(Γ : Ctx Φ) → Bwd U.Label
+eraseCtx ∅        = []
+eraseCtx (Γ ,⋆ J) = eraseCtx Γ :< U.Type
+eraseCtx (Γ , A)  = eraseCtx Γ :< U.Term
 
-erase≤C' : ∀{Φ Φ'}{Γ : Ctx Φ}{Γ' : Ctx Φ'} → Γ ≤C' Γ' → eraseCtx Γ U.≤L eraseCtx Γ'
-erase≤C' base      = U.base
-erase≤C' (skip⋆ p) = U.skipType (erase≤C' p)
-erase≤C' (skip p)  = U.skipTerm (erase≤C' p)
+erase≤C' : ∀{Φ Φ'}{Γ : Ctx Φ}{Γ' : Ctx Φ'} → Γ A.≤C' Γ' → eraseCtx Γ U.≤L eraseCtx Γ'
+erase≤C' A.base      = U.base
+erase≤C' (A.skip⋆ p) = U.skipType (erase≤C' p)
+erase≤C' (A.skip p)  = U.skipTerm (erase≤C' p)
 
 -- there could be a simpler version of this without p and q...
 erase-arity-lem : ∀ b {Φ}{Γ}(p : proj₁ (ISIG b) ≡ Φ)(q : subst Ctx p (proj₁ (proj₂ (ISIG b))) ≡ Γ) → eraseCtx Γ ≡ U.arity b
@@ -57,22 +58,48 @@ erase-arity-lem remainderInteger refl refl = refl
 erase-arity-lem modInteger refl refl = refl
 erase-arity-lem lessThanInteger refl refl = refl
 erase-arity-lem lessThanEqualsInteger refl refl = refl
-erase-arity-lem greaterThanInteger refl refl = refl
-erase-arity-lem greaterThanEqualsInteger refl refl = refl
 erase-arity-lem equalsInteger refl refl = refl
-erase-arity-lem concatenate refl refl = refl
-erase-arity-lem takeByteString refl refl = refl
-erase-arity-lem dropByteString refl refl = refl
+erase-arity-lem appendByteString refl refl = refl
 erase-arity-lem lessThanByteString refl refl = refl
-erase-arity-lem greaterThanByteString refl refl = refl
+erase-arity-lem lessThanEqualsByteString refl refl = refl
 erase-arity-lem sha2-256 refl refl = refl
 erase-arity-lem sha3-256 refl refl = refl
 erase-arity-lem verifySignature refl refl = refl
 erase-arity-lem equalsByteString refl refl = refl
 erase-arity-lem ifThenElse refl refl = refl
-erase-arity-lem charToString refl refl = refl
-erase-arity-lem append refl refl = refl
+erase-arity-lem appendString refl refl = refl
 erase-arity-lem trace refl refl = refl
+erase-arity-lem equalsString refl refl = refl
+erase-arity-lem encodeUtf8 refl refl = refl
+erase-arity-lem decodeUtf8 refl refl = refl
+erase-arity-lem fstPair refl refl = refl
+erase-arity-lem sndPair refl refl = refl
+erase-arity-lem nullList refl refl = refl
+erase-arity-lem headList refl refl = refl
+erase-arity-lem tailList refl refl = refl
+erase-arity-lem chooseList refl refl = refl
+erase-arity-lem constrData refl refl = refl
+erase-arity-lem mapData refl refl = refl
+erase-arity-lem listData refl refl = refl
+erase-arity-lem iData refl refl = refl
+erase-arity-lem bData refl refl = refl
+erase-arity-lem unConstrData refl refl = refl
+erase-arity-lem unMapData refl refl = refl
+erase-arity-lem unListData refl refl = refl
+erase-arity-lem unIData refl refl = refl
+erase-arity-lem unBData refl refl = refl
+erase-arity-lem equalsData refl refl = refl
+erase-arity-lem chooseData refl refl = refl
+erase-arity-lem chooseUnit refl refl = refl
+erase-arity-lem mkPairData refl refl = refl
+erase-arity-lem mkNilData refl refl = refl
+erase-arity-lem mkNilPairData refl refl = refl
+erase-arity-lem mkCons refl refl = refl
+erase-arity-lem consByteString refl refl = refl
+erase-arity-lem sliceByteString refl refl = refl
+erase-arity-lem lengthOfByteString refl refl = refl
+erase-arity-lem indexByteString refl refl = refl
+erase-arity-lem blake2b-256 refl refl = refl
 
 eraseITel : ∀ b {Φ}(Δ : Ctx Φ)(σ : SubNf Φ ∅)
           →  A.ITel b Δ σ → U.ITel b (eraseCtx Δ)
@@ -140,20 +167,12 @@ erase-BUILTIN lessThanInteger σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-c
 erase-BUILTIN lessThanEqualsInteger σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (integer i')) with i ≤? i'
 ... | yes p = refl
 ... | no ¬p = refl
-erase-BUILTIN greaterThanInteger σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (integer i')) with i Util.I>? i'
-... | yes p = refl
-... | no ¬p = refl
-erase-BUILTIN greaterThanEqualsInteger σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (integer i')) with i Util.I≥? i'
-... | yes p = refl
-... | no ¬p = refl
 erase-BUILTIN equalsInteger σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (integer i')) with i ≟ i'
 ... | yes p = refl
 ... | no ¬p = refl
-erase-BUILTIN concatenate σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
-erase-BUILTIN takeByteString σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (bytestring b)) = refl
-erase-BUILTIN dropByteString σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (bytestring b)) = refl
+erase-BUILTIN appendByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
 erase-BUILTIN lessThanByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
-erase-BUILTIN greaterThanByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
+erase-BUILTIN lessThanEqualsByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
 erase-BUILTIN sha2-256 σ (tt ,, _ ,, A.V-con (bytestring b)) = refl
 erase-BUILTIN sha3-256 σ (tt ,, _ ,, A.V-con (bytestring b)) = refl
 erase-BUILTIN verifySignature σ (((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) ,, _ ,, A.V-con (bytestring b'')) with verifySig b b' b''
@@ -162,9 +181,47 @@ erase-BUILTIN verifySignature σ (((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A
 erase-BUILTIN equalsByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (bytestring b')) = refl
 erase-BUILTIN ifThenElse σ ((((tt ,, A) ,, _ ,, A.V-con (bool B.false)) ,, t ,, tv) ,, u ,, uv) = refl
 erase-BUILTIN ifThenElse σ ((((tt ,, A) ,, _ ,, A.V-con (bool B.true)) ,, t ,, tv) ,, u ,, uv) = refl
-erase-BUILTIN charToString σ (tt ,, _ ,, A.V-con (char c)) = refl
-erase-BUILTIN append σ ((tt ,, _ ,, A.V-con (string s)) ,, _ ,, A.V-con (string s')) = refl
-erase-BUILTIN trace σ (tt ,, _ ,, A.V-con (string b)) = refl
+erase-BUILTIN appendString σ ((tt ,, _ ,, A.V-con (string s)) ,, _ ,, A.V-con (string s')) = refl
+erase-BUILTIN trace σ (((tt ,, A) ,, _ ,, A.V-con (string b)) ,, _ ,, v) = refl
+erase-BUILTIN equalsString σ ((tt ,, _ ,, A.V-con (string s)) ,, _ ,, A.V-con (string s')) = refl
+erase-BUILTIN encodeUtf8 σ (tt ,, _ ,, A.V-con (string s)) = refl
+erase-BUILTIN decodeUtf8 σ (tt ,, _ ,, A.V-con (bytestring b)) with DECODEUTF8 b
+... | just _ = refl
+... | nothing = refl
+erase-BUILTIN fstPair σ vs = refl
+erase-BUILTIN sndPair σ vs = refl
+erase-BUILTIN nullList σ vs = refl
+erase-BUILTIN headList σ vs = refl
+erase-BUILTIN tailList σ vs = refl
+erase-BUILTIN chooseList σ vs = refl
+erase-BUILTIN constrData σ vs = refl
+erase-BUILTIN mapData σ vs = refl
+erase-BUILTIN listData σ vs = refl
+erase-BUILTIN iData σ (tt ,, _ ,, A.V-con (integer i)) = refl
+erase-BUILTIN bData σ (tt ,, _ ,, A.V-con (bytestring b)) = refl
+erase-BUILTIN unConstrData σ vs = refl
+erase-BUILTIN unMapData σ vs = refl
+erase-BUILTIN unListData σ vs = refl
+erase-BUILTIN unIData σ (tt ,, _ ,, A.V-con (Data (iDATA i))) = refl
+erase-BUILTIN unIData σ (tt ,, _ ,, A.V-con (Data (bDATA b))) = refl
+erase-BUILTIN unBData σ (tt ,, _ ,, A.V-con (Data (iDATA i))) = refl
+erase-BUILTIN unBData σ (tt ,, _ ,, A.V-con (Data (bDATA b))) = refl
+erase-BUILTIN equalsData σ vs = refl
+erase-BUILTIN chooseData σ vs = refl
+erase-BUILTIN chooseUnit σ vs = refl
+erase-BUILTIN mkPairData σ vs = refl
+erase-BUILTIN mkNilData σ vs = refl
+erase-BUILTIN mkNilPairData σ vs = refl
+erase-BUILTIN mkCons σ vs = refl
+erase-BUILTIN consByteString σ ((tt ,, _ ,, A.V-con (integer i)) ,, _ ,, A.V-con (bytestring b)) = refl
+erase-BUILTIN sliceByteString σ (((tt ,, _ ,, A.V-con (integer st)) ,, _ ,, A.V-con (integer n)) ,, _ ,, A.V-con (bytestring b)) = refl
+erase-BUILTIN lengthOfByteString σ (tt ,, _ ,, A.V-con (bytestring b)) = refl
+erase-BUILTIN indexByteString σ ((tt ,, _ ,, A.V-con (bytestring b)) ,, _ ,, A.V-con (integer i)) with +0 ≤? i
+... | no  _ = refl
+... | yes _ with i Data.Integer.<? Builtin.length b
+... | no  _ = refl
+... | yes _ = refl
+erase-BUILTIN blake2b-256 σ (tt ,, _ ,, A.V-con (bytestring b)) = refl
 
 erase-BUILTIN' : ∀ b {Φ'}{Γ' : Ctx Φ'}(p : proj₁ (ISIG b) ≡ Φ')(q : subst Ctx p (proj₁ (proj₂ (ISIG b))) ≡ Γ')(σ : SubNf Φ' ∅)(vs : A.ITel b Γ' σ){C' : Φ' ⊢Nf⋆ *}(r : subst (_⊢Nf⋆ *) p (proj₂ (proj₂ (ISIG b))) ≡ C') →
   proj₁

@@ -6,17 +6,16 @@
 {-# LANGUAGE NoImplicitPrelude  #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
-{-# OPTIONS_GHC -fno-strictness #-}
 {-# OPTIONS_GHC -fno-specialise #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 module Ledger.Constraints.OnChain where
 
-import           PlutusTx                         (IsData (..))
+import           PlutusTx                         (ToData (..))
 import           PlutusTx.Prelude
 
 import           Ledger.Constraints.TxConstraints
 import qualified Plutus.V1.Ledger.Address         as Address
-import           Plutus.V1.Ledger.Contexts        (TxInInfo (..), TxInfo (..), ValidatorCtx (..))
+import           Plutus.V1.Ledger.Contexts        (ScriptContext (..), TxInInfo (..), TxInfo (..))
 import qualified Plutus.V1.Ledger.Contexts        as V
 import           Plutus.V1.Ledger.Interval        (contains)
 import           Plutus.V1.Ledger.Scripts         (Datum (..))
@@ -25,79 +24,82 @@ import           Plutus.V1.Ledger.Value           (leq)
 import qualified Plutus.V1.Ledger.Value           as Value
 
 {-# INLINABLE checkOwnInputConstraint #-}
-checkOwnInputConstraint :: ValidatorCtx -> InputConstraint a -> Bool
-checkOwnInputConstraint ValidatorCtx{valCtxTxInfo} InputConstraint{icTxOutRef} =
+checkOwnInputConstraint :: ScriptContext -> InputConstraint a -> Bool
+checkOwnInputConstraint ScriptContext{scriptContextTxInfo} InputConstraint{icTxOutRef} =
     let checkInput TxInInfo{txInInfoOutRef} =
             txInInfoOutRef == icTxOutRef -- TODO: We should also check the redeemer but we can't right now because it's hashed
-    in traceIfFalse "Input constraint"
-    $ any checkInput (txInfoInputs valCtxTxInfo)
+    in traceIfFalse "L0" -- "Input constraint"
+    $ any checkInput (txInfoInputs scriptContextTxInfo)
 
 {-# INLINABLE checkOwnOutputConstraint #-}
 checkOwnOutputConstraint
-    :: IsData o
-    => ValidatorCtx
+    :: ToData o
+    => ScriptContext
     -> OutputConstraint o
     -> Bool
-checkOwnOutputConstraint ctx@ValidatorCtx{valCtxTxInfo} OutputConstraint{ocDatum, ocValue} =
-    let hsh = V.findDatumHash (Datum $ toData ocDatum) valCtxTxInfo
-        checkOutput TxOut{txOutValue, txOutType=V.PayToScript svh} =
+checkOwnOutputConstraint ctx@ScriptContext{scriptContextTxInfo} OutputConstraint{ocDatum, ocValue} =
+    let hsh = V.findDatumHash (Datum $ toBuiltinData ocDatum) scriptContextTxInfo
+        checkOutput TxOut{txOutValue, txOutDatumHash=Just svh} =
             txOutValue == ocValue && hsh == Just svh
         checkOutput _       = False
-    in traceIfFalse "Output constraint"
+    in traceIfFalse "L1" -- "Output constraint"
     $ any checkOutput (V.getContinuingOutputs ctx)
 
 {-# INLINABLE checkTxConstraint #-}
-checkTxConstraint :: ValidatorCtx -> TxConstraint -> Bool
-checkTxConstraint ValidatorCtx{valCtxTxInfo} = \case
+checkTxConstraint :: ScriptContext -> TxConstraint -> Bool
+checkTxConstraint ctx@ScriptContext{scriptContextTxInfo} = \case
     MustIncludeDatum dv ->
-        traceIfFalse "Missing datum"
-        $ dv `elem` fmap snd (txInfoData valCtxTxInfo)
+        traceIfFalse "L2" -- "Missing datum"
+        $ dv `elem` fmap snd (txInfoData scriptContextTxInfo)
     MustValidateIn interval ->
-        traceIfFalse "Wrong validation interval"
-        $ interval `contains` txInfoValidRange valCtxTxInfo
+        traceIfFalse "L3" -- "Wrong validation interval"
+        $ interval `contains` txInfoValidRange scriptContextTxInfo
     MustBeSignedBy pubKey ->
-        traceIfFalse "Missing signature"
-        $ valCtxTxInfo `V.txSignedBy` pubKey
+        traceIfFalse "L4" -- "Missing signature"
+        $ scriptContextTxInfo `V.txSignedBy` pubKey
     MustSpendAtLeast vl ->
-        traceIfFalse "Spent value not OK"
-        $ vl `leq` V.valueSpent valCtxTxInfo
+        traceIfFalse "L5" -- "Spent value not OK"
+        $ vl `leq` V.valueSpent scriptContextTxInfo
     MustProduceAtLeast vl ->
-        traceIfFalse "Produced value not OK"
-        $ vl `leq` V.valueProduced valCtxTxInfo
+        traceIfFalse "L6" -- "Produced value not OK"
+        $ vl `leq` V.valueProduced scriptContextTxInfo
     MustSpendPubKeyOutput txOutRef ->
-        traceIfFalse "Public key output not spent"
-        $ maybe False (isNothing . txInInfoWitness) (V.findTxInByTxOutRef txOutRef valCtxTxInfo)
+        traceIfFalse "L7" -- "Public key output not spent"
+        $ maybe False (isNothing . txOutDatumHash . txInInfoResolved) (V.findTxInByTxOutRef txOutRef scriptContextTxInfo)
     MustSpendScriptOutput txOutRef _ ->
-        traceIfFalse "Script output not spent"
+        traceIfFalse "L8" -- "Script output not spent"
         -- Unfortunately we can't check the redeemer, because TxInfo only
         -- gives us the redeemer's hash, but 'MustSpendScriptOutput' gives
         -- us the full redeemer
-        $ isJust (V.findTxInByTxOutRef txOutRef valCtxTxInfo)
-    MustForgeValue mps tn v ->
-        traceIfFalse "Value forged not OK"
-        $ Value.valueOf (txInfoForge valCtxTxInfo) (Value.mpsSymbol mps) tn == v
+        $ isJust (V.findTxInByTxOutRef txOutRef scriptContextTxInfo)
+    MustMintValue mps _ tn v ->
+        traceIfFalse "L9" -- "Value minted not OK"
+        $ Value.valueOf (txInfoMint scriptContextTxInfo) (Value.mpsSymbol mps) tn == v
     MustPayToPubKey pk vl ->
-        traceIfFalse "MustPayToPubKey"
-        $ vl `leq` V.valuePaidTo valCtxTxInfo pk
+        traceIfFalse "La" -- "MustPayToPubKey"
+        $ vl `leq` V.valuePaidTo scriptContextTxInfo pk
     MustPayToOtherScript vlh dv vl ->
-        let outs = V.txInfoOutputs valCtxTxInfo
-            hsh = V.findDatumHash dv valCtxTxInfo
+        let outs = V.txInfoOutputs scriptContextTxInfo
+            hsh = V.findDatumHash dv scriptContextTxInfo
             addr = Address.scriptHashAddress vlh
-            checkOutput TxOut{txOutAddress, txOutValue, txOutType=V.PayToScript svh} =
+            checkOutput TxOut{txOutAddress, txOutValue, txOutDatumHash=Just svh} =
                 txOutValue == vl && hsh == Just svh && txOutAddress == addr
             checkOutput _ = False
         in
-        traceIfFalse "MustPayToOtherScript"
+        traceIfFalse "Lb" -- "MustPayToOtherScript"
         $ any checkOutput outs
     MustHashDatum dvh dv ->
-        traceIfFalse "MustHashDatum"
-        $ V.findDatum dvh valCtxTxInfo == Just dv
+        traceIfFalse "Lc" -- "MustHashDatum"
+        $ V.findDatum dvh scriptContextTxInfo == Just dv
+    MustSatisfyAnyOf xs ->
+        traceIfFalse "Ld" -- "MustSatisfyAnyOf"
+        $ any (checkTxConstraint ctx) xs
 
-{-# INLINABLE checkValidatorCtx #-}
--- | Does the 'ValidatorCtx' satisfy the constraints?
-checkValidatorCtx :: forall i o. IsData o => TxConstraints i o -> ValidatorCtx -> Bool
-checkValidatorCtx TxConstraints{txConstraints, txOwnInputs, txOwnOutputs} ptx =
-    traceIfFalse "checkValidatorCtx failed"
+{-# INLINABLE checkScriptContext #-}
+-- | Does the 'ScriptContext' satisfy the constraints?
+checkScriptContext :: forall i o. ToData o => TxConstraints i o -> ScriptContext -> Bool
+checkScriptContext TxConstraints{txConstraints, txOwnInputs, txOwnOutputs} ptx =
+    traceIfFalse "Ld" -- "checkScriptContext failed"
     $ all (checkTxConstraint ptx) txConstraints
     && all (checkOwnInputConstraint ptx) txOwnInputs
     && all (checkOwnOutputConstraint ptx) txOwnOutputs

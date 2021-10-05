@@ -101,7 +101,7 @@ $ cabal run plutus-pab -- migrate
 
 #### Description
 
-Migrates the database in `pab-core.db` to the current schema.  The database contains the state for the eventful library. Please refer to the  [eventful docs](https://hackage.haskell.org/package/eventful-sqlite-0.2.0/docs/Eventful-Store-Sqlite.html) for more information.
+Migrates the database in `pab-core.db` to the current schema.  The database contains the state for the contract instances.
 
 #### Source
 [Plutus.PAB.App.migrate](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Plutus/PAB/App.hs#L283)
@@ -188,9 +188,9 @@ Plutus specific wallet implementation for managing user funds on the blockchain.
 
 #### Source
 
-- [Cardano.Wallet.API](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/API.hs)
-- [Cardano.Wallet.Server.main](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/Server.hs#L101)
-- [Cardano.Wallet.Types.Config](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/Types.hs#L47)
+- [Cardano.Wallet.Mock.API](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/Mock/API.hs)
+- [Cardano.Wallet.Mock.Server.main](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/Mock/Server.hs#L101)
+- [Cardano.Wallet.Mock.Types.Config](https://github.com/input-output-hk/plutus/blob/master/plutus-pab/src/Cardano/Wallet/Mock/Types.hs#L47)
 
 ### webserver
 
@@ -322,7 +322,7 @@ $ cabal run plutus-pab -- contracts process-outboxes
 
 #### Description
 
-A service that regularly lokks at the contract instances requests and handles them
+A service that regularly looks at the contract instances requests and handles them
 
 #### Dependencies
 

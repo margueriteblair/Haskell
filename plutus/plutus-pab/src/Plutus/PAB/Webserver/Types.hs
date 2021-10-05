@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE DerivingVia          #-}
 {-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE NamedFieldPuns       #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE StrictData           #-}
@@ -14,6 +13,7 @@ module Plutus.PAB.Webserver.Types where
 import           Data.Aeson                              (FromJSON, ToJSON)
 import qualified Data.Aeson                              as JSON
 import           Data.Map                                (Map)
+import qualified Data.OpenApi.Schema                     as OpenApi
 import           Data.Text.Prettyprint.Doc               (Pretty, pretty, (<+>))
 import           GHC.Generics                            (Generic)
 import           Ledger                                  (Tx, TxId)
@@ -21,8 +21,7 @@ import           Ledger.Index                            (UtxoIndex)
 import           Ledger.Slot                             (Slot)
 import           Ledger.Value                            (Value)
 import           Playground.Types                        (FunctionSchema)
-import           Plutus.Contract.Effects.ExposeEndpoint  (ActiveEndpoint)
-import           Plutus.PAB.Events.Contract              (ContractPABRequest)
+import           Plutus.Contract.Effects                 (ActiveEndpoint, PABReq)
 import           Plutus.PAB.Events.ContractInstanceState (PartiallyDecodedResponse)
 import           Schema                                  (FormSchema)
 import           Wallet.Emulator.Wallet                  (Wallet)
@@ -32,10 +31,10 @@ import           Wallet.Types                            (ContractInstanceId)
 data ContractReport t =
     ContractReport
         { crAvailableContracts   :: [ContractSignatureResponse t]
-        , crActiveContractStates :: [(ContractInstanceId, PartiallyDecodedResponse ContractPABRequest)]
+        , crActiveContractStates :: [(ContractInstanceId, PartiallyDecodedResponse PABReq)]
         }
     deriving stock (Generic, Eq, Show)
-    deriving anyclass (ToJSON, FromJSON)
+    deriving anyclass (ToJSON, FromJSON, OpenApi.ToSchema)
 
 data ChainReport =
     ChainReport
@@ -44,7 +43,7 @@ data ChainReport =
         , annotatedBlockchain :: [[AnnotatedTx]]
         }
     deriving (Show, Eq, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 emptyChainReport :: ChainReport
 emptyChainReport = ChainReport mempty mempty mempty
@@ -55,7 +54,7 @@ data FullReport t =
         , chainReport    :: ChainReport
         }
     deriving stock (Generic, Eq, Show)
-    deriving anyclass (ToJSON, FromJSON)
+    deriving anyclass (ToJSON, FromJSON, OpenApi.ToSchema)
 
 data ContractSignatureResponse t =
     ContractSignatureResponse
@@ -65,14 +64,18 @@ data ContractSignatureResponse t =
     deriving stock (Generic, Eq, Show)
     deriving anyclass (ToJSON, FromJSON)
 
+deriving instance OpenApi.ToSchema t => OpenApi.ToSchema (ContractSignatureResponse t)
+
 -- | Data needed to start a new instance of a contract.
 data ContractActivationArgs t =
     ContractActivationArgs
         { caID     :: t -- ^ ID of the contract
-        , caWallet :: Wallet -- ^ Wallet that should be used for this instance
+        , caWallet :: Maybe Wallet -- ^ Wallet that should be used for this instance, `knownWallet 1` is used in the Nothing case.
         }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
+
+deriving instance OpenApi.ToSchema t => OpenApi.ToSchema (ContractActivationArgs t)
 
 instance Pretty t => Pretty (ContractActivationArgs t) where
     pretty ContractActivationArgs{caID, caWallet} =
@@ -80,13 +83,17 @@ instance Pretty t => Pretty (ContractActivationArgs t) where
 
 -- | Current state of a contract instance
 --   (to be sent to external clients)
-data ContractInstanceClientState =
+data ContractInstanceClientState t =
     ContractInstanceClientState
         { cicContract     :: ContractInstanceId
         , cicCurrentState :: PartiallyDecodedResponse ActiveEndpoint
+        , cicWallet       :: Wallet
+        , cicDefinition   :: t
         }
         deriving stock (Eq, Show, Generic)
         deriving anyclass (ToJSON, FromJSON)
+
+deriving instance OpenApi.ToSchema t => OpenApi.ToSchema (ContractInstanceClientState t)
 
 -- | Status updates for contract instances streamed to client
 data InstanceStatusToClient

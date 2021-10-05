@@ -2,9 +2,10 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# OPTIONS -fplugin PlutusTx.Plugin #-}
-{-# OPTIONS -fplugin-opt PlutusTx.Plugin:defer-errors #-}
-{-# OPTIONS -fplugin-opt PlutusTx.Plugin:no-context #-}
+{-# OPTIONS_GHC -fplugin PlutusTx.Plugin #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:no-context #-}
+
 
 module Plugin.Basic.Spec where
 
@@ -13,12 +14,11 @@ import           Lib
 import           PlcTestUtils
 import           Plugin.Lib
 
-import qualified PlutusTx.Builtins   as Builtins
+import qualified PlutusTx.Builtins  as Builtins
 import           PlutusTx.Code
 import           PlutusTx.Plugin
 
-import qualified PlutusCore.Builtins as PLC
-import qualified PlutusCore.Universe as PLC
+import qualified PlutusCore.Default as PLC
 
 import           Data.Proxy
 
@@ -39,7 +39,7 @@ monoId = plc (Proxy @"monoId") (\(x :: Integer) -> x)
 monoK :: CompiledCode (Integer -> Integer -> Integer)
 monoK = plc (Proxy @"monoK") (\(i :: Integer) -> \(j :: Integer) -> i)
 
--- GHC acutually turns this into a lambda for us, try and make one that stays a let
+-- GHC actually turns this into a lambda for us, try and make one that stays a let
 letFun :: CompiledCode (Integer -> Integer -> Bool)
 letFun = plc (Proxy @"letFun") (\(x::Integer) (y::Integer) -> let f z = Builtins.equalsInteger x z in f y)
 

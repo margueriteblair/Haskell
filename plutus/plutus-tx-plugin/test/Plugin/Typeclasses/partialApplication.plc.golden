@@ -3,67 +3,41 @@
     (nonrec)
     (datatypebind
       (datatype
-        (tyvardecl Ordering (type))
-
-        Ordering_match
-        (vardecl EQ Ordering) (vardecl GT Ordering) (vardecl LT Ordering)
-      )
-    )
-    (datatypebind
-      (datatype
         (tyvardecl Bool (type))
 
         Bool_match
         (vardecl True Bool) (vardecl False Bool)
       )
     )
-    (termbind
-      (strict)
-      (vardecl equalsInteger (fun (con integer) (fun (con integer) Bool)))
-      (lam
-        arg
-        (con integer)
-        (lam
-          arg
-          (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin equalsInteger) arg ] arg ]
-          ]
-        )
-      )
-    )
-    (termbind
-      (strict)
-      (vardecl lessThanEqInteger (fun (con integer) (fun (con integer) Bool)))
-      (lam
-        arg
-        (con integer)
-        (lam
-          arg
-          (con integer)
-          [
-            (lam
-              b
-              (con bool)
-              [ [ [ { (builtin ifThenElse) Bool } b ] True ] False ]
-            )
-            [ [ (builtin lessThanEqualsInteger) arg ] arg ]
-          ]
-        )
-      )
-    )
     (datatypebind
-      (datatype (tyvardecl Unit (type))  Unit_match (vardecl Unit Unit))
+      (datatype
+        (tyvardecl Ordering (type))
+
+        Ordering_match
+        (vardecl EQ Ordering) (vardecl GT Ordering) (vardecl LT Ordering)
+      )
+    )
+    (termbind
+      (strict)
+      (vardecl equalsInteger (fun (con integer) (fun (con integer) (con bool))))
+      (builtin equalsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl ifThenElse (all a (type) (fun (con bool) (fun a (fun a a)))))
+      (builtin ifThenElse)
     )
     (termbind
       (strict)
       (vardecl
-        fOrdData_ccompare (fun (con integer) (fun (con integer) Ordering))
+        lessThanEqualsInteger (fun (con integer) (fun (con integer) (con bool)))
+      )
+      (builtin lessThanEqualsInteger)
+    )
+    (termbind
+      (strict)
+      (vardecl
+        fOrdInteger_ccompare (fun (con integer) (fun (con integer) Ordering))
       )
       (lam
         x
@@ -71,35 +45,56 @@
         (lam
           y
           (con integer)
-          [
+          {
             [
               [
-                { [ Bool_match [ [ equalsInteger x ] y ] ] (fun Unit Ordering) }
-                (lam thunk Unit EQ)
+                {
+                  [
+                    Bool_match
+                    [
+                      [ [ { ifThenElse Bool } [ [ equalsInteger x ] y ] ] True ]
+                      False
+                    ]
+                  ]
+                  (all dead (type) Ordering)
+                }
+                (abs dead (type) EQ)
               ]
-              (lam
-                thunk
-                Unit
-                [
+              (abs
+                dead
+                (type)
+                {
                   [
                     [
                       {
-                        [ Bool_match [ [ lessThanEqInteger x ] y ] ]
-                        (fun Unit Ordering)
+                        [
+                          Bool_match
+                          [
+                            [
+                              [
+                                { ifThenElse Bool }
+                                [ [ lessThanEqualsInteger x ] y ]
+                              ]
+                              True
+                            ]
+                            False
+                          ]
+                        ]
+                        (all dead (type) Ordering)
                       }
-                      (lam thunk Unit LT)
+                      (abs dead (type) LT)
                     ]
-                    (lam thunk Unit GT)
+                    (abs dead (type) GT)
                   ]
-                  Unit
-                ]
+                  (all dead (type) dead)
+                }
               )
             ]
-            Unit
-          ]
+            (all dead (type) dead)
+          }
         )
       )
     )
-    fOrdData_ccompare
+    fOrdInteger_ccompare
   )
 )

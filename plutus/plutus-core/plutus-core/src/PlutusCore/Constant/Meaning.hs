@@ -14,6 +14,9 @@
 {-# LANGUAGE TypeOperators             #-}
 {-# LANGUAGE UndecidableInstances      #-}
 
+-- DO NOT enable @StrictData@ in this file as it makes the evaluator slower (even with @~@ put in
+-- 'BuiltinRuntime' in the places where it's necessary to have laziness for evaluators to work).
+
 module PlutusCore.Constant.Meaning where
 
 import           PlutusPrelude
@@ -22,10 +25,10 @@ import           PlutusCore.Constant.Dynamic.Emit
 import           PlutusCore.Constant.Function
 import           PlutusCore.Constant.Typed
 import           PlutusCore.Core
+import           PlutusCore.Data
 import           PlutusCore.Evaluation.Machine.Exception
 import           PlutusCore.Evaluation.Result
 import           PlutusCore.Name
-import           PlutusCore.Universe
 
 import           Control.Lens                            (ix, (^?))
 import           Control.Monad.Except
@@ -33,6 +36,8 @@ import           Data.Array
 import qualified Data.ByteString                         as BS
 import qualified Data.Kind                               as GHC
 import           Data.Proxy
+import           Data.Some.GADT
+import           Data.Text                               (Text)
 import           Data.Type.Bool
 import           Data.Type.Equality
 import           GHC.TypeLits
@@ -62,19 +67,31 @@ data BuiltinMeaning term cost =
 -- reasons (there isn't much point in caching a value of a type with a constraint as it becomes a
 -- function at runtime anyway, due to constraints being compiled as dictionaries).
 
--- | A 'BuiltinRuntime' is an instantiated (via 'toBuiltinRuntime') 'BuiltinMeaning'.
--- It contains info that is used during evaluation:
+-- TODO: we used to have arities and it was justified to precache them before executing an
+-- evaluator, but now we need to reconsider that. Maybe instantiating 'BuiltinMeaning' on the fly
+-- is in fact faster.
+-- | A 'BuiltinRuntime' represents a possibly partial builtin application.
+-- We get an initial 'BuiltinRuntime' representing an empty builtin application (i.e. just the
+-- builtin with no arguments) by instantiating (via 'toBuiltinRuntime') a 'BuiltinMeaning'.
 --
--- 1. the 'TypeScheme' of a builtin
--- 2. the 'Arity'
--- 3. the denotation
--- 4. the costing function
+-- A 'BuiltinRuntime' contains info that is used during evaluation:
+--
+-- 1. the 'TypeScheme' of the uninstantiated part of the builtin. I.e. initially it's the type
+--      scheme of the whole builtin, but applying or type-instantiating the builtin peels off
+--      the corresponding constructor from the type scheme
+-- 2. the (possibly partially instantiated) denotation
+-- 3. the (possibly partially instantiated) costing function
+--
+-- All the three are in sync in terms of partial instantiatedness due to 'TypeScheme' being a
+-- GADT and 'FoldArgs' and 'FoldArgsEx' operating on the index of that GADT.
 data BuiltinRuntime term =
     forall args res. BuiltinRuntime
         (TypeScheme term args res)
-        Arity
-        (FoldArgs args res)
-        (FoldArgsEx args)
+        (FoldArgs args res)  -- Must be lazy, because we don't want to compute the denotation when
+                             -- it's fully saturated before figuring out what it's going to cost.
+        (FoldArgsEx args)    -- We make this lazy, so that evaluators that don't care about costing
+                             -- can put @undefined@ here. TODO: we should test if making this strict
+                             -- introduces any measurable speedup.
 
 -- | A 'BuiltinRuntime' for each builtin from a set of builtins.
 newtype BuiltinsRuntime fun term = BuiltinsRuntime
@@ -83,8 +100,7 @@ newtype BuiltinsRuntime fun term = BuiltinsRuntime
 
 -- | Instantiate a 'BuiltinMeaning' given denotations of built-in functions and a cost model.
 toBuiltinRuntime :: cost -> BuiltinMeaning term cost -> BuiltinRuntime term
-toBuiltinRuntime cost (BuiltinMeaning sch f exF) =
-    BuiltinRuntime sch (getArity sch) f (exF cost)
+toBuiltinRuntime cost (BuiltinMeaning sch f exF) = BuiltinRuntime sch f (exF cost)
 
 -- | A type class for \"each function from a set of built-in functions has a 'BuiltinMeaning'\".
 class (Bounded fun, Enum fun, Ix fun) => ToBuiltinMeaning uni fun where
@@ -92,9 +108,7 @@ class (Bounded fun, Enum fun, Ix fun) => ToBuiltinMeaning uni fun where
     type CostingPart uni fun
 
     -- | Get the 'BuiltinMeaning' of a built-in function.
-    toBuiltinMeaning
-        :: HasConstantIn uni term
-        => fun -> BuiltinMeaning term (CostingPart uni fun)
+    toBuiltinMeaning :: HasConstantIn uni term => fun -> BuiltinMeaning term (CostingPart uni fun)
 
 -- | Get the type of a built-in function.
 typeOfBuiltinFunction :: ToBuiltinMeaning uni fun => fun -> Type TyName uni ()
@@ -111,7 +125,7 @@ toBuiltinsRuntime cost =
 
 -- | Look up the runtime info of a built-in function during evaluation.
 lookupBuiltin
-    :: (MonadError (ErrorWithCause err term) m, AsMachineError err fun term, Ix fun)
+    :: (MonadError (ErrorWithCause err term) m, AsMachineError err fun, Ix fun)
     => fun -> BuiltinsRuntime fun val -> m (BuiltinRuntime val)
 -- @Data.Array@ doesn't seem to have a safe version of @(!)@, hence we use a prism.
 lookupBuiltin fun (BuiltinsRuntime env) = case env ^? ix fun of
@@ -196,17 +210,28 @@ type family Merge xs ys :: [a] where
 -- in an @x@.
 type family ToBinds (x :: a) :: [Some TyNameRep]
 
+type instance ToBinds '[]       = '[]
+type instance ToBinds (x ': xs) = Merge (ToBinds x) (ToBinds xs)
+
 type instance ToBinds Integer       = '[]
 type instance ToBinds BS.ByteString = '[]
-type instance ToBinds String        = '[]
-type instance ToBinds Char          = '[]
+type instance ToBinds Text          = '[]
 type instance ToBinds ()            = '[]
 type instance ToBinds Bool          = '[]
 type instance ToBinds Int           = '[]
+type instance ToBinds Data          = '[]
+type instance ToBinds []            = '[]
+type instance ToBinds (,)           = '[]
+type instance ToBinds [a]           = '[]  -- One can't directly put a PLC type variable into lists
+type instance ToBinds (a, b)        = '[]  -- or tuples ('SomeConstantOf' has to be used for that),
+                                           -- hence we say that polymorphic built-in types can't
+                                           -- directly contain any PLC type variables in them.
 
-type instance ToBinds (EvaluationResult a) = ToBinds a
-type instance ToBinds (Emitter a)          = ToBinds a
-type instance ToBinds (Opaque _ rep)       = ToBinds rep
+type instance ToBinds (EvaluationResult a)      = ToBinds a
+type instance ToBinds (Emitter a)               = ToBinds a
+type instance ToBinds (Opaque _ rep)            = ToBinds rep
+type instance ToBinds (SomeConstant _ rep)      = ToBinds rep
+type instance ToBinds (SomeConstantOf _ _ reps) = ToBinds reps
 
 type instance ToBinds (TyVarRep var) = '[ 'Some var ]
 type instance ToBinds (TyAppRep fun arg) = Merge (ToBinds fun) (ToBinds arg)
@@ -279,6 +304,24 @@ instance
     , j ~ If (a === var) (i + 1) i
     ) => TrySpecializeAsVar i j term a
 
+-- | For looking into the type of a constant or the type arguments of a polymorphic built-in type
+-- and specializing them as types representing Plutus type variables.
+-- @i@ is a fresh id and @j@ is a final one as in 'TrySpecializeAsVar', but since 'HandleSomeConstant'
+-- can specialize multiple variables, @j@ can be equal to @i + n@ for any @n@ (including @0@).
+type HandleSomeConstant :: Nat -> Nat -> GHC.Type -> GHC.Type -> GHC.Constraint
+class HandleSomeConstant i j term a | i term a -> j
+instance {-# OVERLAPPABLE #-} i ~ j => HandleSomeConstant i j term a
+-- Take an argument of a built-in type and try to specialize it as a type representing a Plutus
+-- type variable. Note that we don't explicitly handle the no-more-arguments case as it's handled
+-- by the OVERLAPPABLE instance right above.
+instance {-# OVERLAPPING #-}
+    ( TrySpecializeAsVar i j term rep
+    , HandleSomeConstant j k term (SomeConstantOf uni f reps)
+    ) => HandleSomeConstant i k term (SomeConstantOf uni f (rep ': reps))
+instance {-# OVERLAPPING #-}
+    ( TrySpecializeAsVar i j term rep
+    ) => HandleSomeConstant i j term (SomeConstant uni rep)
+
 -- See https://github.com/effectfully/sketches/tree/master/poly-type-of-saga/part2-enumerate-type-vars
 -- for a detailed elaboration on how this works.
 -- | Specialize each Haskell type variable in @a@ as a type representing a Plutus Core type variable
@@ -297,8 +340,9 @@ class EnumerateFromTo i j term a | i term a -> j
 instance {-# OVERLAPPABLE #-} i ~ j => EnumerateFromTo i j term a
 instance {-# OVERLAPPING #-}
     ( TrySpecializeAsVar i j term a
-    , EnumerateFromTo j k term b
-    ) => EnumerateFromTo i k term (a -> b)
+    , HandleSomeConstant j k term a
+    , EnumerateFromTo k l term b
+    ) => EnumerateFromTo i l term (a -> b)
 
 -- See Note [Automatic derivation of type schemes]
 -- | Construct the meaning for a built-in function by automatically deriving its

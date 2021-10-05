@@ -50,7 +50,6 @@ import           Language.PureScript.Bridge                 (BridgePart, Languag
 import           Language.PureScript.Bridge.CodeGenSwitches (ForeignOptions (ForeignOptions), genForeign,
                                                              unwrapSingleConstructors)
 import           Language.PureScript.Bridge.TypeParameters  (A)
-import           Ledger.Constraints.OffChain                (UnbalancedTx)
 import qualified PSGenerator.Common
 import qualified Playground.API                             as API
 import qualified Playground.Interpreter                     as PI
@@ -77,14 +76,10 @@ import           System.FilePath                            ((</>))
 import qualified Vesting
 import qualified VestingSimulations
 import           Wallet.API                                 (WalletAPIError)
-import           Wallet.Effects                             (AddressChangeRequest)
 import qualified Wallet.Emulator.Chain                      as EM
-import qualified Wallet.Emulator.ChainIndex                 as EM
-import           Wallet.Emulator.ChainIndex.Index           (ChainIndexItem)
 import qualified Wallet.Emulator.LogMessages                as EM
 import qualified Wallet.Emulator.MultiAgent                 as EM
 import qualified Wallet.Emulator.NodeClient                 as EM
-import           Wallet.Emulator.Notify                     (EmulatorNotifyLogMsg)
 import qualified Wallet.Emulator.Wallet                     as EM
 import           Wallet.Rollup.Types                        (AnnotatedTx, BeneficialOwner, DereferencedInput,
                                                              SequenceId, TxKey)
@@ -114,15 +109,14 @@ myTypes =
     [ (genericShow <*> (equal <*> mkSumType)) (Proxy @CompilationResult)
     , (genericShow <*> (equal <*> mkSumType)) (Proxy @Warning)
     , (genericShow <*> (equal <*> mkSumType)) (Proxy @SourceCode)
-    , (genericShow <*> (equal <*> mkSumType)) (Proxy @EM.Wallet)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @EM.Wallet)
+    , (equal <*> (genericShow <*> mkSumType)) (Proxy @EM.WalletNumber)
     , (genericShow <*> (equal <*> mkSumType)) (Proxy @Simulation)
     , (genericShow <*> (equal <*> mkSumType)) (Proxy @ContractDemo)
     , (genericShow <*> (equal <*> mkSumType)) (Proxy @SimulatorWallet)
     , (genericShow <*> mkSumType) (Proxy @CompilationError)
     , (genericShow <*> mkSumType) (Proxy @Evaluation)
     , (genericShow <*> mkSumType) (Proxy @EvaluationResult)
-    , (genericShow <*> mkSumType) (Proxy @ChainIndexItem)
-    , (genericShow <*> mkSumType) (Proxy @AddressChangeRequest)
     , (genericShow <*> mkSumType) (Proxy @EM.EmulatorEvent')
     , (genericShow <*> mkSumType) (Proxy @(EM.EmulatorTimeEvent A))
     , (genericShow <*> mkSumType) (Proxy @EM.ChainEvent)
@@ -130,7 +124,6 @@ myTypes =
     , (genericShow <*> mkSumType) (Proxy @(Log.LogMessage A))
     , (genericShow <*> mkSumType) (Proxy @EM.WalletEvent)
     , (genericShow <*> mkSumType) (Proxy @EM.NodeClientEvent)
-    , (genericShow <*> mkSumType) (Proxy @EM.ChainIndexEvent)
     , (genericShow <*> mkSumType) (Proxy @PlaygroundError)
     , (equal <*> (genericShow <*> mkSumType)) (Proxy @WalletAPIError)
     , (order <*> (genericShow <*> mkSumType)) (Proxy @SequenceId)
@@ -144,8 +137,6 @@ myTypes =
     , (genericShow <*> mkSumType) (Proxy @CheckpointKey)
     , (genericShow <*> mkSumType) (Proxy @EM.RequestHandlerLogMsg)
     , (genericShow <*> mkSumType) (Proxy @EM.TxBalanceMsg)
-    , (genericShow <*> mkSumType) (Proxy @UnbalancedTx)
-    , (genericShow <*> mkSumType) (Proxy @EmulatorNotifyLogMsg)
     ]
 
 mySettings :: Settings

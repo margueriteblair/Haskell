@@ -1,58 +1,57 @@
-{-# LANGUAGE NamedFieldPuns    #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE NamedFieldPuns     #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RecordWildCards    #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 
 module Playground.UsecasesSpec
     ( tests
     ) where
 
-import           Control.Monad                          (unless)
-import           Control.Monad.Except                   (runExceptT)
-import           Control.Monad.Except.Extras            (mapError)
-import           Control.Newtype.Generics               (over)
-import           Crowdfunding                           (Contribution (Contribution), contribValue)
-import           Data.Aeson                             (ToJSON)
-import qualified Data.Aeson                             as JSON
-import qualified Data.Aeson.Text                        as JSON
-import           Data.Foldable                          (traverse_)
-import           Data.List                              (isPrefixOf)
-import           Data.List.NonEmpty                     (NonEmpty ((:|)))
-import           Data.Maybe                             (fromMaybe)
-import qualified Data.Text                              as Text
-import qualified Data.Text.IO                           as Text
-import qualified Data.Text.Lazy                         as TL
-import           Data.Time.Units                        (Minute)
-import           Game                                   (GuessParams (GuessParams), LockParams (LockParams), amount,
-                                                         guessWord, secretWord)
-import qualified Interpreter                            as Webghc
-import           Language.Haskell.Interpreter           (InterpreterError,
-                                                         InterpreterResult (InterpreterResult, result),
-                                                         SourceCode (SourceCode))
-import           Ledger.Ada                             (adaValueOf, lovelaceValueOf)
-import           Ledger.Scripts                         (ValidatorHash (ValidatorHash))
-import           Ledger.Value                           (TokenName (TokenName), Value)
-import qualified Playground.Interpreter                 as PI
-import           Playground.Types                       (CompilationResult (CompilationResult),
-                                                         ContractCall (AddBlocks, AddBlocksUntil, CallEndpoint, PayToWallet),
-                                                         Evaluation (Evaluation), EvaluationResult (EvaluationResult),
-                                                         Expression, FunctionSchema (FunctionSchema),
-                                                         KnownCurrency (KnownCurrency),
-                                                         PlaygroundError (InterpreterError),
-                                                         SimulatorWallet (SimulatorWallet), adaCurrency, argument,
-                                                         argumentValues, caller, emulatorLog, endpointDescription,
-                                                         fundsDistribution, program, resultRollup,
-                                                         simulatorWalletBalance, simulatorWalletWallet, sourceCode,
-                                                         walletKeys, wallets)
-import           Playground.Usecases                    (crowdFunding, errorHandling, game, vesting)
-import           Plutus.Contract.Effects.ExposeEndpoint (EndpointDescription (EndpointDescription))
-import           Schema                                 (FormSchema (FormSchemaUnit, FormSchemaValue))
-import           System.Environment                     (lookupEnv)
-import           Test.Tasty                             (TestTree, testGroup)
-import           Test.Tasty.HUnit                       (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import           Wallet.Emulator.Types                  (Wallet (Wallet))
-import           Wallet.Rollup.Render                   (showBlockchain)
-import           Wallet.Rollup.Types                    (AnnotatedTx (tx))
+import           Control.Monad                (unless)
+import           Control.Monad.Except         (runExceptT)
+import           Control.Monad.Except.Extras  (mapError)
+import           Control.Newtype.Generics     (over)
+import           Crowdfunding                 (Contribution (Contribution), contribValue)
+import           Data.Aeson                   (ToJSON)
+import qualified Data.Aeson                   as JSON
+import qualified Data.Aeson.Text              as JSON
+import           Data.Foldable                (traverse_)
+import           Data.List                    (isPrefixOf)
+import           Data.List.NonEmpty           (NonEmpty ((:|)))
+import           Data.Maybe                   (fromMaybe)
+import qualified Data.Text                    as Text
+import qualified Data.Text.IO                 as Text
+import qualified Data.Text.Lazy               as TL
+import           Data.Time.Units              (Minute)
+import           Game                         (GuessParams (GuessParams), LockParams (LockParams), amount, guessWord,
+                                               secretWord)
+import qualified Interpreter                  as Webghc
+import           Language.Haskell.Interpreter (InterpreterError, InterpreterResult (InterpreterResult, result),
+                                               SourceCode (SourceCode))
+import           Ledger.Ada                   (adaValueOf, lovelaceValueOf)
+import           Ledger.Blockchain            (OnChainTx (..))
+import           Ledger.Scripts               (ValidatorHash (ValidatorHash))
+import           Ledger.Value                 (TokenName (TokenName), Value)
+import qualified Playground.Interpreter       as PI
+import           Playground.Types             (CompilationResult (CompilationResult),
+                                               ContractCall (AddBlocks, AddBlocksUntil, CallEndpoint, PayToWallet),
+                                               Evaluation (Evaluation), EvaluationResult (EvaluationResult), Expression,
+                                               FunctionSchema (FunctionSchema), KnownCurrency (KnownCurrency),
+                                               PlaygroundError (InterpreterError), SimulatorWallet (SimulatorWallet),
+                                               adaCurrency, argument, argumentValues, caller, emulatorLog,
+                                               endpointDescription, feesDistribution, fundsDistribution, program,
+                                               resultRollup, simulatorWalletBalance, simulatorWalletWallet, sourceCode,
+                                               walletKeys, wallets)
+import           Playground.Usecases          (crowdFunding, errorHandling, game, vesting)
+import           Schema                       (FormSchema (FormSchemaUnit, FormSchemaValue))
+import           System.Environment           (lookupEnv)
+import           Test.Tasty                   (TestTree, testGroup)
+import           Test.Tasty.HUnit             (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import           Wallet.Emulator.Types        (WalletNumber (..), fromWalletNumber)
+import           Wallet.Rollup.Render         (showBlockchain)
+import           Wallet.Rollup.Types          (AnnotatedTx (..))
+import           Wallet.Types                 (EndpointDescription (EndpointDescription))
 
 tests :: TestTree
 tests =
@@ -69,18 +68,18 @@ tests =
 maxInterpretationTime :: Minute
 maxInterpretationTime = 2
 
-w1, w2, w3, w4, w5 :: Wallet
-w1 = Wallet 1
+w1, w2, w3, w4, w5 :: WalletNumber
+w1 = WalletNumber 1
 
-w2 = Wallet 2
+w2 = WalletNumber 2
 
-w3 = Wallet 3
+w3 = WalletNumber 3
 
-w4 = Wallet 4
+w4 = WalletNumber 4
 
-w5 = Wallet 5
+w5 = WalletNumber 5
 
-mkSimulatorWallet :: Wallet -> Value -> SimulatorWallet
+mkSimulatorWallet :: WalletNumber -> Value -> SimulatorWallet
 mkSimulatorWallet simulatorWalletWallet simulatorWalletBalance =
     SimulatorWallet {..}
 
@@ -118,42 +117,42 @@ vestingTest =
         , testCase "should run simple evaluation" $
           evaluate (mkEvaluation []) >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 tenLovelace
-              , mkSimulatorWallet w2 tenLovelace
+              [ mkSimulatorWallet w1 hundredMLovelace
+              , mkSimulatorWallet w2 hundredMLovelace
               ]
         , testCase "should run simple wait evaluation" $
           evaluate (mkEvaluation [AddBlocks 10]) >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 tenLovelace
-              , mkSimulatorWallet w2 tenLovelace
+              [ mkSimulatorWallet w1 hundredMLovelace
+              , mkSimulatorWallet w2 hundredMLovelace
               ]
         , testCase "should run vest funds evaluation" $
           evaluate vestFundsEval >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 $ lovelaceValueOf 10
-              , mkSimulatorWallet w2 $ lovelaceValueOf 2
+              [ mkSimulatorWallet w1 hundredMLovelace
+              , mkSimulatorWallet w2 $ lovelaceValueOf 20_000_000
               ]
         , testCase "should run vest and a partial retrieve of funds" $
           evaluate vestAndPartialRetrieveEval >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 $ lovelaceValueOf 15
-              , mkSimulatorWallet w2 $ lovelaceValueOf 2
+              [ mkSimulatorWallet w1 $ lovelaceValueOf 150_000_000
+              , mkSimulatorWallet w2 $ lovelaceValueOf 20_000_000
               ]
         , testCase "should run vest and a full retrieve of funds" $
           evaluate vestAndFullRetrieveEval >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 $ lovelaceValueOf 18
-              , mkSimulatorWallet w2 $ lovelaceValueOf 2
+              [ mkSimulatorWallet w1 $ lovelaceValueOf 180_000_000
+              , mkSimulatorWallet w2 $ lovelaceValueOf 20_000_000
               ]
         ]
   where
-    tenLovelace = lovelaceValueOf 10
+    hundredMLovelace = lovelaceValueOf 100_000_000
     mkEvaluation :: [Expression] -> Evaluation
     mkEvaluation expressions =
         Evaluation
             { wallets =
-                  [ mkSimulatorWallet w1 tenLovelace
-                  , mkSimulatorWallet w2 tenLovelace
+                  [ mkSimulatorWallet w1 hundredMLovelace
+                  , mkSimulatorWallet w2 hundredMLovelace
                   ]
             , sourceCode = vesting
             , program = toJSONString expressions
@@ -161,10 +160,10 @@ vestingTest =
     vestFundsEval = mkEvaluation [vestFunds w2, AddBlocks 1]
     vestAndPartialRetrieveEval =
         mkEvaluation
-            [vestFunds w2, AddBlocks 20, retrieveFunds w1 5, AddBlocks 1]
+            [vestFunds w2, AddBlocks 20, retrieveFunds w1 50_000_000, AddBlocks 2]
     vestAndFullRetrieveEval =
         mkEvaluation
-            [vestFunds w2, AddBlocks 40, retrieveFunds w1 8, AddBlocks 5]
+            [vestFunds w2, AddBlocks 40, retrieveFunds w1 80_000_000, AddBlocks 5]
     vestFunds caller = callEndpoint "vest funds" caller ()
     retrieveFunds caller balance =
         callEndpoint "retrieve funds" caller $ lovelaceValueOf balance
@@ -177,7 +176,9 @@ gameTest =
         , testCase "should keep the funds" $
           evaluate (mkEvaluation [lock w2 "abcde" twoAda, AddBlocks 1, guess w1 "ade", AddBlocks 1]) >>=
           hasFundsDistribution
-              [mkSimulatorWallet w1 tenAda, mkSimulatorWallet w2 (adaValueOf 8)]
+              [ mkSimulatorWallet w1 tenAda
+              , mkSimulatorWallet w2 (adaValueOf 8)
+              ]
         , testCase "should unlock the funds" $
           evaluate (mkEvaluation [lock w2 "abcde" twoAda, AddBlocks 1, guess w1 "abcde", AddBlocks 1]) >>=
           hasFundsDistribution
@@ -235,11 +236,15 @@ hasFundsDistribution ::
     -> Assertion
 hasFundsDistribution _ (Left err) = assertFailure $ show err
 hasFundsDistribution requiredDistribution (Right InterpreterResult {result = EvaluationResult {..}}) = do
-    unless (requiredDistribution == fundsDistribution) $ do
+    let addFees fund fee = fund { simulatorWalletBalance = simulatorWalletBalance fund <> simulatorWalletBalance fee }
+    let noFeesDistribution = zipWith addFees fundsDistribution feesDistribution
+    unless (requiredDistribution == noFeesDistribution) $ do
         Text.putStrLn $
-            either id id $ showBlockchain walletKeys $ fmap (fmap tx) resultRollup
+            either id id $ showBlockchain
+                (fmap (fmap fromWalletNumber) walletKeys)
+                (fmap (fmap (\AnnotatedTx {tx, valid} -> if valid then Valid tx else Invalid tx)) resultRollup)
         traverse_ print $ reverse emulatorLog
-    assertEqual "" requiredDistribution fundsDistribution
+    assertEqual "" requiredDistribution noFeesDistribution
 
 errorHandlingTest :: TestTree
 errorHandlingTest = testGroup "errorHandling" [compilationChecks errorHandling]
@@ -252,57 +257,31 @@ crowdfundingTest =
         , testCase "should run successful campaign" $
           evaluate successfulCampaign >>=
           hasFundsDistribution
-              [ mkSimulatorWallet w1 $ lovelaceValueOf 60
-              , mkSimulatorWallet w2 $ lovelaceValueOf 19
-              , mkSimulatorWallet w3 $ lovelaceValueOf 20
-              , mkSimulatorWallet w4 $ lovelaceValueOf 21
-              ]
-        , testCase "should run failed campaign and return the funds" $
-          evaluate failedCampaign >>=
-          hasFundsDistribution
-              [ mkSimulatorWallet w1 $ lovelaceValueOf 20
-              , mkSimulatorWallet w2 $ lovelaceValueOf 20
-              , mkSimulatorWallet w3 $ lovelaceValueOf 20
+              [ mkSimulatorWallet w1 $ lovelaceValueOf 600000
+              , mkSimulatorWallet w2 $ lovelaceValueOf 190000
+              , mkSimulatorWallet w3 $ lovelaceValueOf 200000
+              , mkSimulatorWallet w4 $ lovelaceValueOf 210000
               ]
         ]
   where
-    twentyLovelace = lovelaceValueOf 20
     sourceCode = crowdFunding
     successfulCampaign =
         Evaluation
             { wallets =
-                  [ mkSimulatorWallet w1 $ lovelaceValueOf 30
-                  , mkSimulatorWallet w2 $ lovelaceValueOf 30
-                  , mkSimulatorWallet w3 $ lovelaceValueOf 30
-                  , mkSimulatorWallet w4 $ lovelaceValueOf 30
+                  [ mkSimulatorWallet w1 $ lovelaceValueOf 300000
+                  , mkSimulatorWallet w2 $ lovelaceValueOf 300000
+                  , mkSimulatorWallet w3 $ lovelaceValueOf 300000
+                  , mkSimulatorWallet w4 $ lovelaceValueOf 300000
                   ]
             , program =
                   toJSONString
                       [ scheduleCollection w1
-                      , contribute w2 $ lovelaceValueOf 11
-                      , contribute w3 $ lovelaceValueOf 10
-                      , contribute w4 $ lovelaceValueOf 9
+                      , contribute w2 $ lovelaceValueOf 110000
+                      , contribute w3 $ lovelaceValueOf 100000
+                      , contribute w4 $ lovelaceValueOf 90000
                       , AddBlocks 1
-                      , AddBlocksUntil 40
+                      , AddBlocksUntil 41
                       , AddBlocks 1
-                      ]
-            , sourceCode
-            }
-    failedCampaign =
-        Evaluation
-            { wallets =
-                  [ mkSimulatorWallet w1 twentyLovelace
-                  , mkSimulatorWallet w2 twentyLovelace
-                  , mkSimulatorWallet w3 twentyLovelace
-                  ]
-            , program =
-                  toJSONString
-                      [ scheduleCollection w1
-                      , contribute w2 $ lovelaceValueOf 10
-                      , AddBlocks 1
-                      , AddBlocksUntil 40
-                      , AddBlocksUntil 60
-                      , AddBlocksUntil 100
                       ]
             , sourceCode
             }
@@ -374,7 +353,7 @@ compilationChecks source =
 toJSONString :: ToJSON a => a -> JSON.Value
 toJSONString = JSON.String . TL.toStrict . JSON.encodeToLazyText
 
-callEndpoint :: ToJSON a => EndpointDescription -> Wallet -> a -> Expression
+callEndpoint :: ToJSON a => EndpointDescription -> WalletNumber -> a -> Expression
 callEndpoint endpointDescription caller param =
     CallEndpoint
         { caller

@@ -12,18 +12,18 @@
 module Spec.Future(tests, theFuture, increaseMarginTrace, settleEarlyTrace, payOutTrace) where
 
 import           Control.Monad           (void)
+import           Data.Default            (Default (def))
 import           Test.Tasty
 import qualified Test.Tasty.HUnit        as HUnit
 
-import qualified Spec.Lib                as Lib
 import           Spec.TokenAccount       (assertAccountBalance)
 
-import qualified Ledger
 import qualified Ledger.Ada              as Ada
-import           Ledger.Crypto           (PrivateKey, PubKey (..))
+import           Ledger.Crypto           (PrivateKey, PubKey (..), privateKey10)
 import           Ledger.Oracle           (Observation (..), SignedMessage)
 import qualified Ledger.Oracle           as Oracle
-import           Ledger.Slot             (Slot)
+import           Ledger.Time             (POSIXTime)
+import qualified Ledger.TimeSlot         as TimeSlot
 import           Ledger.Value            (Value, scale)
 
 import           Plutus.Contract.Test
@@ -32,60 +32,63 @@ import           Plutus.Contracts.Future (Future (..), FutureAccounts (..), Futu
 import qualified Plutus.Contracts.Future as F
 import           Plutus.Trace.Emulator   (ContractHandle, EmulatorTrace)
 import qualified Plutus.Trace.Emulator   as Trace
-import qualified PlutusTx                as PlutusTx
+import qualified PlutusTx
 
 tests :: TestTree
 tests =
     testGroup "futures"
     [ checkPredicate "setup tokens"
-        (assertDone (F.setupTokens @() @FutureSchema @FutureError) (Trace.walletInstanceTag w1) (const True) "setupTokens")
+        (assertDone (F.setupTokens @() @FutureSchema @FutureError)
+                    (Trace.walletInstanceTag w1) (const True) "setupTokens")
         $ void F.setupTokensTrace
 
     , checkPredicate "can initialise and obtain tokens"
-        (walletFundsChange w1 (scale (-1) (F.initialMargin theFuture) <> F.tokenFor Short F.testAccounts)
-        .&&. walletFundsChange w2 (scale (-1) (F.initialMargin theFuture) <> F.tokenFor Long F.testAccounts))
+        (    walletFundsChange w1 ( scale (-1) (F.initialMargin $ theFuture startTime)
+                                 <> F.tokenFor Short F.testAccounts
+                                  )
+        .&&. walletFundsChange w2 ( scale (-1) (F.initialMargin $ theFuture startTime)
+                                 <> F.tokenFor Long F.testAccounts
+                                  )
+        )
         (void (initContract >> joinFuture))
 
     , checkPredicate "can increase margin"
-        (assertAccountBalance (ftoShort F.testAccounts) (== (Ada.lovelaceValueOf 1936))
-        .&&. assertAccountBalance (ftoLong F.testAccounts) (== (Ada.lovelaceValueOf 2410)))
+        (assertAccountBalance (ftoShort F.testAccounts) (== Ada.lovelaceValueOf 1936)
+        .&&. assertAccountBalance (ftoLong F.testAccounts) (== Ada.lovelaceValueOf 2410))
         increaseMarginTrace
 
     , checkPredicate "can settle early"
-        (assertAccountBalance (ftoShort F.testAccounts) (== (Ada.lovelaceValueOf 0))
-        .&&. assertAccountBalance (ftoLong F.testAccounts) (== (Ada.lovelaceValueOf 4246)))
+        (assertAccountBalance (ftoShort F.testAccounts) (== Ada.lovelaceValueOf 0)
+        .&&. assertAccountBalance (ftoLong F.testAccounts) (== Ada.lovelaceValueOf 4246))
         settleEarlyTrace
 
      , checkPredicate "can pay out"
-        (assertAccountBalance (ftoShort F.testAccounts) (== (Ada.lovelaceValueOf 1936))
-        .&&. assertAccountBalance (ftoLong F.testAccounts) (== (Ada.lovelaceValueOf 2310)))
+        (assertAccountBalance (ftoShort F.testAccounts) (== Ada.lovelaceValueOf 1936)
+        .&&. assertAccountBalance (ftoLong F.testAccounts) (== Ada.lovelaceValueOf 2310))
         payOutTrace
 
-    , Lib.goldenPir "test/Spec/future.pir" $$(PlutusTx.compile [|| F.futureStateMachine ||])
+    , goldenPir "test/Spec/future.pir" $$(PlutusTx.compile [|| F.futureStateMachine ||])
 
-    , HUnit.testCase "script size is reasonable" (Lib.reasonable (F.validator theFuture F.testAccounts) 63000)
-
+    , HUnit.testCaseSteps "script size is reasonable" $ \step ->
+        reasonable' step (F.validator (theFuture startTime) F.testAccounts) 63000
     ]
 
-setup :: FutureSetup
-setup =
+    where
+        startTime = TimeSlot.scSlotZeroTime def
+
+setup :: POSIXTime -> FutureSetup
+setup startTime =
     FutureSetup
         { shortPK = walletPubKey w1
-        , longPK = walletPubKey (Wallet 2)
-        , contractStart = 15
+        , longPK = walletPubKey w2
+        , contractStart = startTime + 15000
         }
-
-w1 :: Wallet
-w1 = Wallet 1
-
-w2 :: Wallet
-w2 = Wallet 2
 
 -- | A futures contract over 187 units with a forward price of 1233 Lovelace,
 --   due at slot #100.
-theFuture :: Future
-theFuture = Future {
-    ftDeliveryDate  = Ledger.Slot 100,
+theFuture :: POSIXTime -> Future
+theFuture startTime = Future {
+    ftDeliveryDate  = startTime + 100000,
     ftUnits         = units,
     ftUnitPrice     = forwardPrice,
     ftInitialMargin = Ada.lovelaceValueOf 800,
@@ -120,8 +123,9 @@ payOutTrace = do
 --   are locked by the contract.
 initContract :: EmulatorTrace (ContractHandle () FutureSchema FutureError)
 initContract = do
-    hdl1 <- Trace.activateContractWallet w1 (F.futureContract theFuture)
-    Trace.callEndpoint @"initialise-future" hdl1 (setup, Short)
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
+    hdl1 <- Trace.activateContractWallet w1 (F.futureContract $ theFuture startTime)
+    Trace.callEndpoint @"initialise-future" hdl1 (setup startTime, Short)
     _ <- Trace.waitNSlots 3
     pure hdl1
 
@@ -129,8 +133,9 @@ initContract = do
 --   all resulting transactions.
 joinFuture :: EmulatorTrace (ContractHandle () FutureSchema FutureError)
 joinFuture = do
-    hdl2 <- Trace.activateContractWallet w2 (F.futureContract theFuture)
-    Trace.callEndpoint @"join-future" hdl2 (F.testAccounts, setup)
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
+    hdl2 <- Trace.activateContractWallet w2 (F.futureContract $ theFuture startTime)
+    Trace.callEndpoint @"join-future" hdl2 (F.testAccounts, setup startTime)
     _ <- Trace.waitNSlots 2
     pure hdl2
 
@@ -138,9 +143,10 @@ joinFuture = do
 --   all resulting transactions.
 payOut :: ContractHandle () FutureSchema FutureError -> EmulatorTrace ()
 payOut hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     let
         spotPrice = Ada.lovelaceValueOf 1124
-        ov = mkSignedMessage (ftDeliveryDate theFuture) spotPrice
+        ov = mkSignedMessage (ftDeliveryDate $ theFuture startTime) spotPrice
     Trace.callEndpoint @"settle-future" hdl ov
     void $ Trace.waitNSlots 2
 
@@ -157,9 +163,7 @@ units :: Integer
 units = 187
 
 oracleKeys :: (PrivateKey, PubKey)
-oracleKeys =
-    let wllt = Wallet 10 in
-        (walletPrivKey wllt, walletPubKey wllt)
+oracleKeys = (privateKey10, walletPubKey w10)
 
 -- | Increase the margin of the 'Long' role by 100 lovelace
 increaseMargin :: ContractHandle () FutureSchema FutureError -> EmulatorTrace ()
@@ -170,11 +174,12 @@ increaseMargin hdl = do
 -- | Call 'settleEarly' with a high spot price (11240 lovelace)
 settleEarly :: ContractHandle () FutureSchema FutureError -> EmulatorTrace ()
 settleEarly hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     let
         spotPrice = Ada.lovelaceValueOf 11240
-        ov = mkSignedMessage (Ledger.Slot 25) spotPrice
+        ov = mkSignedMessage (startTime + 25000) spotPrice
     Trace.callEndpoint @"settle-early" hdl ov
     void $ Trace.waitNSlots 1
 
-mkSignedMessage :: Slot -> Value -> SignedMessage (Observation Value)
-mkSignedMessage sl vl = Oracle.signObservation sl vl (fst oracleKeys)
+mkSignedMessage :: POSIXTime -> Value -> SignedMessage (Observation Value)
+mkSignedMessage time vl = Oracle.signObservation time vl (fst oracleKeys)

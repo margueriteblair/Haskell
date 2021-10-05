@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -17,7 +18,6 @@
 {-# OPTIONS_GHC -fno-specialise #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-{-# OPTIONS_GHC -fno-strictness #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 {-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
@@ -50,8 +50,9 @@ import qualified Data.Aeson.Extras        as JSON
 import           Data.Aeson.Types         hiding (Error, Value)
 import qualified Data.Foldable            as F
 import           Data.Scientific          (Scientific, floatingOrInteger)
+import           Data.String              (IsString (..))
 import           Data.Text                (pack)
-import           Data.Text.Encoding       (decodeUtf8, encodeUtf8)
+import           Data.Text.Encoding       as Text (decodeUtf8, encodeUtf8)
 import           Deriving.Aeson
 import           Language.Marlowe.Pretty  (Pretty (..))
 import           Ledger                   (PubKeyHash (..), Slot (..), ValidatorHash)
@@ -60,14 +61,15 @@ import qualified Ledger.Value             as Val
 import           PlutusTx                 (makeIsDataIndexed)
 import           PlutusTx.AssocMap        (Map)
 import qualified PlutusTx.AssocMap        as Map
+import qualified PlutusTx.Builtins        as Builtins
 import           PlutusTx.Lift            (makeLift)
-import           PlutusTx.Prelude         hiding (mapM, (<$>), (<*>), (<>))
+import           PlutusTx.Prelude         hiding (encodeUtf8, mapM, (<$>), (<*>), (<>))
 import           PlutusTx.Ratio           (denominator, numerator)
 import           Prelude                  (mapM, (<$>))
-import qualified Prelude                  as P
+import qualified Prelude                  as Haskell
 import           Text.PrettyPrint.Leijen  (comma, hang, lbrace, line, rbrace, space, text, (<>))
 
-{-# ANN module ("HLint: ignore Avoid restricted function" :: String) #-}
+{- HLINT ignore "Avoid restricted function" -}
 
 {- Functions that used in Plutus Core must be inlineable,
    so their code is available for PlutusTx compiler -}
@@ -86,6 +88,7 @@ import           Text.PrettyPrint.Leijen  (comma, hang, lbrace, line, rbrace, sp
 {-# INLINABLE applyInput #-}
 {-# INLINABLE convertReduceWarnings #-}
 {-# INLINABLE applyAllInputs #-}
+{-# INLINABLE isClose #-}
 {-# INLINABLE computeTransaction #-}
 {-# INLINABLE contractLifespanUpperBound #-}
 {-# INLINABLE totalBalance #-}
@@ -93,19 +96,19 @@ import           Text.PrettyPrint.Leijen  (comma, hang, lbrace, line, rbrace, sp
 -- * Aliaces
 
 data Party = PK PubKeyHash | Role TokenName
-  deriving stock (Generic,P.Eq,P.Ord)
+  deriving stock (Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
-instance Show Party where
-  showsPrec p (PK pk) = showParen (p P.>= 11) $ showString "PK \""
-                                              . showsPrec 11 pk
-                                              . showString "\""
-  showsPrec _ (Role role) = showsPrec 11 $ unTokenName role
+instance Haskell.Show Party where
+  showsPrec p (PK pk) = Haskell.showParen (p Haskell.>= 11) $ Haskell.showString "PK \""
+                                              . Haskell.showsPrec 11 pk
+                                              . Haskell.showString "\""
+  showsPrec _ (Role role) = Haskell.showsPrec 11 $ unTokenName role
 
 type AccountId = Party
 type Timeout = Slot
 type Money = Val.Value
-type ChoiceName = ByteString
+type ChoiceName = BuiltinByteString
 type ChosenNum = Integer
 type SlotInterval = (Slot, Slot)
 type Accounts = Map (AccountId, Token) Integer
@@ -114,8 +117,8 @@ type Accounts = Map (AccountId, Token) Integer
 {-| Choices – of integers – are identified by ChoiceId
     which combines a name for the choice with the Party who had made the choice.
 -}
-data ChoiceId = ChoiceId ByteString Party
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+data ChoiceId = ChoiceId BuiltinByteString Party
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -123,20 +126,20 @@ data ChoiceId = ChoiceId ByteString Party
     a pair of a currency symbol and token name.
 -}
 data Token = Token CurrencySymbol TokenName
-  deriving stock (Generic,P.Eq,P.Ord)
+  deriving stock (Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
-instance Show Token where
+instance Haskell.Show Token where
   showsPrec p (Token cs tn) =
-    showParen (p P.>= 11) (showString $ "Token \"" P.++ show cs P.++ "\" " P.++ show tn)
+    Haskell.showParen (p Haskell.>= 11) (Haskell.showString $ "Token \"" Haskell.++ Haskell.show cs Haskell.++ "\" " Haskell.++ Haskell.show tn)
 
 {-| Values, as defined using Let ar e identified by name,
     and can be used by 'UseValue' construct.
 -}
-newtype ValueId = ValueId ByteString
-  deriving stock (Show,P.Eq,P.Ord,Generic)
+newtype ValueId = ValueId BuiltinByteString
+  deriving (IsString, Haskell.Show) via TokenName
+  deriving stock (Haskell.Eq,Haskell.Ord,Generic)
   deriving anyclass (Newtype)
-
 
 {-| Values include some quantities that change with time,
     including “the slot interval”, “the current balance of an account (in Lovelace)”,
@@ -150,13 +153,14 @@ data Value a = AvailableMoney AccountId Token
            | AddValue (Value a) (Value a)
            | SubValue (Value a) (Value a)
            | MulValue (Value a) (Value a)
+           | DivValue (Value a) (Value a)
            | Scale Rational (Value a)
            | ChoiceValue ChoiceId
            | SlotIntervalStart
            | SlotIntervalEnd
            | UseValue ValueId
            | Cond a (Value a) (Value a)
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -177,12 +181,12 @@ data Observation = AndObs Observation Observation
                  | ValueEQ (Value Observation) (Value Observation)
                  | TrueObs
                  | FalseObs
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
 data Bound = Bound Integer Integer
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -201,7 +205,7 @@ data Bound = Bound Integer Integer
 data Action = Deposit AccountId Party Token (Value Observation)
             | Choice ChoiceId [Bound]
             | Notify Observation
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -211,7 +215,7 @@ data Action = Deposit AccountId Party Token (Value Observation)
 -}
 data Payee = Account AccountId
            | Party Party
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -219,7 +223,7 @@ data Payee = Account AccountId
     datatype Case is mutually recurvive with @Contract@
 -}
 data Case a = Case Action a
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -236,7 +240,7 @@ data Contract = Close
               | When [Case Contract] Timeout Contract
               | Let ValueId (Value Observation) Contract
               | Assert Observation Contract
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (Pretty)
 
 
@@ -246,12 +250,12 @@ data State = State { accounts    :: Accounts
                    , choices     :: Map ChoiceId ChosenNum
                    , boundValues :: Map ValueId Integer
                    , minSlot     :: Slot }
-  deriving stock (Show,Generic)
+  deriving stock (Haskell.Show,Haskell.Eq,Generic)
 
 {-| Execution environment. Contains a slot interval of a transaction.
 -}
 newtype Environment = Environment { slotInterval :: SlotInterval }
-  deriving stock (Show,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Haskell.Eq,Haskell.Ord)
 
 
 {-| Input for a Marlowe contract. Correspond to expected 'Action's.
@@ -259,7 +263,7 @@ newtype Environment = Environment { slotInterval :: SlotInterval }
 data Input = IDeposit AccountId Party Token Integer
            | IChoice ChoiceId ChosenNum
            | INotify
-  deriving stock (Show,P.Eq,Generic)
+  deriving stock (Haskell.Show,Haskell.Eq,Generic)
   deriving anyclass (Pretty)
 
 instance FromJSON Input where
@@ -271,7 +275,7 @@ instance FromJSON Input where
                   <*> (v .: "that_deposits"))
     <|> (IChoice <$> (v .: "for_choice_id")
                  <*> (v .: "input_that_chooses_num"))
-  parseJSON _ = fail "Contract must be either an object or a the string \"close\""
+  parseJSON _ = Haskell.fail "Contract must be either an object or a the string \"close\""
 
 instance ToJSON Input where
   toJSON (IDeposit accId party tok amount) = object
@@ -295,27 +299,27 @@ instance ToJSON Input where
 -}
 data IntervalError = InvalidInterval SlotInterval
                    | IntervalInPastError Slot SlotInterval
-  deriving stock (Show, Generic)
+  deriving stock (Haskell.Show, Generic, Haskell.Eq)
   deriving anyclass (ToJSON, FromJSON)
 
 
 -- | Result of 'fixInterval'
 data IntervalResult = IntervalTrimmed Environment State
                     | IntervalError IntervalError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 {-| Payment occurs during 'Pay' contract evaluation, and
     when positive balances are payed out on contract closure.
 -}
-data Payment = Payment Party Money
-  deriving stock (Show)
+data Payment = Payment AccountId Payee Money
+  deriving stock (Haskell.Show)
 
 
 -- | Effect of 'reduceContractStep' computation
 data ReduceEffect = ReduceWithPayment Payment
                   | ReduceNoPayment
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Warning during 'reduceContractStep'
@@ -326,39 +330,39 @@ data ReduceWarning = ReduceNoWarning
                    | ReduceShadowing ValueId Integer Integer
 --                                     oldVal ^  newVal ^
                    | ReduceAssertionFailed
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Result of 'reduceContractStep'
 data ReduceStepResult = Reduced ReduceWarning ReduceEffect State Contract
                       | NotReduced
                       | AmbiguousSlotIntervalReductionError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Result of 'reduceContractUntilQuiescent'
-data ReduceResult = ContractQuiescent [ReduceWarning] [Payment] State Contract
+data ReduceResult = ContractQuiescent Bool [ReduceWarning] [Payment] State Contract
                   | RRAmbiguousSlotIntervalError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Warning of 'applyCases'
 data ApplyWarning = ApplyNoWarning
                   | ApplyNonPositiveDeposit Party AccountId Token Integer
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Result of 'applyCases'
 data ApplyResult = Applied ApplyWarning State Contract
                  | ApplyNoMatchError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Result of 'applyAllInputs'
-data ApplyAllResult = ApplyAllSuccess [TransactionWarning] [Payment] State Contract
+data ApplyAllResult = ApplyAllSuccess Bool [TransactionWarning] [Payment] State Contract
                     | ApplyAllNoMatchError
                     | ApplyAllAmbiguousSlotIntervalError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 -- | Warnings during transaction computation
@@ -369,7 +373,7 @@ data TransactionWarning = TransactionNonPositiveDeposit Party AccountId Token In
                         | TransactionShadowing ValueId Integer Integer
 --                                                 oldVal ^  newVal ^
                         | TransactionAssertionFailed
-  deriving stock (Show, Generic, P.Eq)
+  deriving stock (Haskell.Show, Generic, Haskell.Eq)
   deriving anyclass (Pretty)
 
 
@@ -378,7 +382,7 @@ data TransactionError = TEAmbiguousSlotIntervalError
                       | TEApplyNoMatchError
                       | TEIntervalError IntervalError
                       | TEUselessTransaction
-  deriving stock (Show, Generic)
+  deriving stock (Haskell.Show, Generic, Haskell.Eq)
   deriving anyclass (ToJSON, FromJSON)
 
 
@@ -387,7 +391,7 @@ data TransactionError = TEAmbiguousSlotIntervalError
 data TransactionInput = TransactionInput
     { txInterval :: SlotInterval
     , txInputs   :: [Input] }
-  deriving stock (Show, P.Eq)
+  deriving stock (Haskell.Show, Haskell.Eq)
 
 instance Pretty TransactionInput where
     prettyFragment tInp = text "TransactionInput" <> space <> lbrace <> line <> txIntLine <> line <> txInpLine
@@ -405,7 +409,7 @@ data TransactionOutput =
         , txOutState    :: State
         , txOutContract :: Contract }
     | Error TransactionError
-  deriving stock (Show)
+  deriving stock (Haskell.Show)
 
 
 {-|
@@ -414,7 +418,7 @@ data TransactionOutput =
 data MarloweData = MarloweData {
         marloweState    :: State,
         marloweContract :: Contract
-    } deriving stock (Show, Generic)
+    } deriving stock (Haskell.Show, Haskell.Eq, Generic)
       deriving anyclass (ToJSON, FromJSON)
 
 
@@ -422,7 +426,7 @@ data MarloweParams = MarloweParams {
         rolePayoutValidatorHash :: ValidatorHash,
         rolesCurrency           :: CurrencySymbol
     }
-  deriving stock (Show,Generic,P.Eq,P.Ord)
+  deriving stock (Haskell.Show,Generic,Haskell.Eq,Haskell.Ord)
   deriving anyclass (FromJSON,ToJSON)
 
 
@@ -471,6 +475,18 @@ evalValue env state value = let
         AddValue lhs rhs     -> eval lhs + eval rhs
         SubValue lhs rhs     -> eval lhs - eval rhs
         MulValue lhs rhs     -> eval lhs * eval rhs
+        DivValue lhs rhs     -> let n = eval lhs
+                                in if n == 0 then 0 else let
+                                    d = eval rhs
+                                in if d == 0 then 0 else let
+                                    (q, r) = n `quotRem` d
+                                    ar = abs r * 2
+                                    ad = abs d
+                                in if ar < ad then q -- reminder < 1/2
+                                   else if ar > ad then q + signum n * signum d -- reminder > 1/2
+                                   else let -- reminder == 1/2
+                                qIsEven = q `Builtins.remainderInteger` 2 == 0
+                                in if qIsEven then q else q + signum n * signum d
         Scale s rhs          -> let (n, d) = (numerator s, denominator s)
                                     nn = eval rhs * n
                                     (q, r) = nn `quotRem` d in
@@ -552,12 +568,12 @@ addMoneyToAccount accId token amount accounts = let
 {-| Gives the given amount of money to the given payee.
     Returns the appropriate effect and updated accounts
 -}
-giveMoney :: Payee -> Token -> Integer -> Accounts -> (ReduceEffect, Accounts)
-giveMoney payee (Token cur tok) amount accounts = case payee of
-    Party party   -> (ReduceWithPayment (Payment party (Val.singleton cur tok amount)), accounts)
-    Account accId -> let
-        newAccs = addMoneyToAccount accId (Token cur tok) amount accounts
-        in (ReduceNoPayment, newAccs)
+giveMoney :: AccountId -> Payee -> Token -> Integer -> Accounts -> (ReduceEffect, Accounts)
+giveMoney accountId payee (Token cur tok) amount accounts = let
+    newAccounts = case payee of
+        Party _       -> accounts
+        Account accId -> addMoneyToAccount accId (Token cur tok) amount accounts
+    in (ReduceWithPayment (Payment accountId payee (Val.singleton cur tok amount)), newAccounts)
 
 
 -- | Carry a step of the contract with no inputs
@@ -567,7 +583,7 @@ reduceContractStep env state contract = case contract of
     Close -> case refundOne (accounts state) of
         Just ((party, money), newAccounts) -> let
             newState = state { accounts = newAccounts }
-            in Reduced ReduceNoWarning (ReduceWithPayment (Payment party money)) newState Close
+            in Reduced ReduceNoWarning (ReduceWithPayment (Payment party (Party party) money)) newState Close
         Nothing -> NotReduced
 
     Pay accId payee tok val cont -> let
@@ -584,7 +600,7 @@ reduceContractStep env state contract = case contract of
                 warning = if paidAmount < amountToPay
                           then ReducePartialPay accId payee tok paidAmount amountToPay
                           else ReduceNoWarning
-                (payment, finalAccs) = giveMoney payee tok paidAmount newAccs
+                (payment, finalAccs) = giveMoney accId payee tok paidAmount newAccs
                 newState = state { accounts = finalAccs }
                 in Reduced warning payment newState cont
 
@@ -621,8 +637,8 @@ reduceContractStep env state contract = case contract of
 reduceContractUntilQuiescent :: Environment -> State -> Contract -> ReduceResult
 reduceContractUntilQuiescent env state contract = let
     reductionLoop
-      :: Environment -> State -> Contract -> [ReduceWarning] -> [Payment] -> ReduceResult
-    reductionLoop env state contract warnings payments =
+      :: Bool -> Environment -> State -> Contract -> [ReduceWarning] -> [Payment] -> ReduceResult
+    reductionLoop reduced env state contract warnings payments =
         case reduceContractStep env state contract of
             Reduced warning effect newState cont -> let
                 newWarnings = if warning == ReduceNoWarning then warnings
@@ -630,12 +646,12 @@ reduceContractUntilQuiescent env state contract = let
                 newPayments  = case effect of
                     ReduceWithPayment payment -> payment : payments
                     ReduceNoPayment           -> payments
-                in reductionLoop env newState cont newWarnings newPayments
+                in reductionLoop True env newState cont newWarnings newPayments
             AmbiguousSlotIntervalReductionError -> RRAmbiguousSlotIntervalError
             -- this is the last invocation of reductionLoop, so we can reverse lists
-            NotReduced -> ContractQuiescent (reverse warnings) (reverse payments) state contract
+            NotReduced -> ContractQuiescent reduced (reverse warnings) (reverse payments) state contract
 
-    in reductionLoop env state contract [] []
+    in reductionLoop False env state contract [] []
 
 
 -- | Apply a single Input to the contract (assumes the contract is reduced)
@@ -689,18 +705,20 @@ convertReduceWarnings = foldr (\warn acc -> case warn of
 applyAllInputs :: Environment -> State -> Contract -> [Input] -> ApplyAllResult
 applyAllInputs env state contract inputs = let
     applyAllLoop
-        :: Environment
+        :: Bool
+        -> Environment
         -> State
         -> Contract
         -> [Input]
         -> [TransactionWarning]
         -> [Payment]
         -> ApplyAllResult
-    applyAllLoop env state contract inputs warnings payments =
+    applyAllLoop contractChanged env state contract inputs warnings payments =
         case reduceContractUntilQuiescent env state contract of
             RRAmbiguousSlotIntervalError -> ApplyAllAmbiguousSlotIntervalError
-            ContractQuiescent reduceWarns pays curState cont -> case inputs of
+            ContractQuiescent reduced reduceWarns pays curState cont -> case inputs of
                 [] -> ApplyAllSuccess
+                    (contractChanged || reduced)
                     (warnings ++ convertReduceWarnings reduceWarns)
                     (payments ++ pays)
                     curState
@@ -708,6 +726,7 @@ applyAllInputs env state contract inputs = let
                 (input : rest) -> case applyInput env curState input cont of
                     Applied applyWarn newState cont ->
                         applyAllLoop
+                            True
                             env
                             newState
                             cont
@@ -717,7 +736,7 @@ applyAllInputs env state contract inputs = let
                                 ++ convertApplyWarning applyWarn)
                             (payments ++ pays)
                     ApplyNoMatchError -> ApplyAllNoMatchError
-    in applyAllLoop env state contract inputs [] []
+    in applyAllLoop False env state contract inputs [] []
   where
     convertApplyWarning :: ApplyWarning -> [TransactionWarning]
     convertApplyWarning warn =
@@ -726,6 +745,9 @@ applyAllInputs env state contract inputs = let
             ApplyNonPositiveDeposit party accId tok amount ->
                 [TransactionNonPositiveDeposit party accId tok amount]
 
+isClose :: Contract -> Bool
+isClose Close = True
+isClose _     = False
 
 -- | Try to compute outputs of a transaction given its inputs, a contract, and it's @State@
 computeTransaction :: TransactionInput -> State -> Contract -> TransactionOutput
@@ -733,8 +755,8 @@ computeTransaction tx state contract = let
     inputs = txInputs tx
     in case fixInterval (txInterval tx) state of
         IntervalTrimmed env fixState -> case applyAllInputs env fixState contract inputs of
-            ApplyAllSuccess warnings payments newState cont ->
-                    if (contract == cont) && ((contract /= Close) || (Map.null $ accounts state))
+            ApplyAllSuccess reduced warnings payments newState cont ->
+                    if not reduced && (not (isClose contract) || (Map.null $ accounts state))
                     then Error TEUselessTransaction
                     else TransactionOutput { txOutWarnings = warnings
                                            , txOutPayments = payments
@@ -754,7 +776,7 @@ contractLifespanUpperBound contract = case contract of
         max (contractLifespanUpperBound contract1) (contractLifespanUpperBound contract2)
     When cases timeout subContract -> let
         contractsLifespans = fmap (\(Case _ cont) -> contractLifespanUpperBound cont) cases
-        in maximum (timeout : contractLifespanUpperBound subContract : contractsLifespans)
+        in Haskell.maximum (timeout : contractLifespanUpperBound subContract : contractsLifespans)
     Let _ _ cont -> contractLifespanUpperBound cont
     Assert _ cont -> contractLifespanUpperBound cont
 
@@ -781,9 +803,9 @@ customOptions = defaultOptions
                 }
 
 getInteger :: Scientific -> Parser Integer
-getInteger x = case (floatingOrInteger x :: Either Double Integer) of
+getInteger x = case (floatingOrInteger x :: Either Haskell.Double Integer) of
                  Right a -> return a
-                 Left _  -> fail "Account number is not an integer"
+                 Left _  -> Haskell.fail "Account number is not an integer"
 
 withInteger :: JSON.Value -> Parser Integer
 withInteger = withScientific "" getInteger
@@ -808,44 +830,44 @@ instance ToJSON State where
 
 instance FromJSON Party where
   parseJSON = withObject "Party" (\v ->
-        (PK . PubKeyHash <$> (JSON.decodeByteString =<< (v .: "pk_hash")))
-    <|> (Role . Val.TokenName . encodeUtf8 <$> (v .: "role_token"))
+        (PK . PubKeyHash . toBuiltin <$> (JSON.decodeByteString =<< (v .: "pk_hash")))
+    <|> (Role . Val.tokenName . Text.encodeUtf8 <$> (v .: "role_token"))
                                  )
 instance ToJSON Party where
     toJSON (PK pkh) = object
-        [ "pk_hash" .= (JSON.String $ JSON.encodeByteString $ getPubKeyHash pkh) ]
+        [ "pk_hash" .= (JSON.String $ JSON.encodeByteString $ fromBuiltin $ getPubKeyHash pkh) ]
     toJSON (Role (Val.TokenName name)) = object
-        [ "role_token" .= (JSON.String $ decodeUtf8 name) ]
+        [ "role_token" .= (JSON.String $ Text.decodeUtf8 $ fromBuiltin name) ]
 
 
 instance FromJSON ChoiceId where
   parseJSON = withObject "ChoiceId" (\v ->
-       ChoiceId <$> (encodeUtf8 <$> (v .: "choice_name"))
+       ChoiceId <$> (toBuiltin . Text.encodeUtf8 <$> (v .: "choice_name"))
                 <*> (v .: "choice_owner")
                                     )
 
 instance ToJSON ChoiceId where
-  toJSON (ChoiceId name party) = object [ "choice_name" .= (JSON.String $ decodeUtf8 name)
+  toJSON (ChoiceId name party) = object [ "choice_name" .= (JSON.String $ Text.decodeUtf8 $ fromBuiltin name)
                                         , "choice_owner" .= party
                                         ]
 
 
 instance FromJSON Token where
   parseJSON = withObject "Token" (\v ->
-       Token <$> (CurrencySymbol <$> (JSON.decodeByteString =<< (v .: "currency_symbol")))
-             <*> (Val.TokenName . encodeUtf8 <$> (v .: "token_name"))
+       Token <$> (Val.currencySymbol <$> (JSON.decodeByteString =<< (v .: "currency_symbol")))
+             <*> (Val.tokenName . Text.encodeUtf8 <$> (v .: "token_name"))
                                  )
 
 instance ToJSON Token where
   toJSON (Token currSym tokName) = object
-      [ "currency_symbol" .= (JSON.String $ JSON.encodeByteString $ unCurrencySymbol currSym)
-      , "token_name" .= (JSON.String $ decodeUtf8 $ unTokenName tokName)
+      [ "currency_symbol" .= (JSON.String $ JSON.encodeByteString $ fromBuiltin $ unCurrencySymbol currSym)
+      , "token_name" .= (JSON.String $ Text.decodeUtf8 $ fromBuiltin $ unTokenName tokName)
       ]
 
 instance FromJSON ValueId where
-    parseJSON = withText "ValueId" $ return . ValueId . encodeUtf8
+    parseJSON = withText "ValueId" $ return . ValueId . toBuiltin . Text.encodeUtf8
 instance ToJSON ValueId where
-    toJSON (ValueId x) = JSON.String (decodeUtf8 x)
+    toJSON (ValueId x) = JSON.String (Text.decodeUtf8 $ fromBuiltin x)
 
 
 instance FromJSON (Value Observation) where
@@ -863,6 +885,7 @@ instance FromJSON (Value Observation) where
                                   <*> (v .: "times")
               Just divi -> Scale <$> ((%) <$> (getInteger =<< (v .: "times")) <*> getInteger divi)
                                  <*> (v .: "multiply"))
+    <|> (DivValue <$> (v .: "divide") <*> (v .: "by"))
     <|> (ChoiceValue <$> (v .: "value_of_choice"))
     <|> (UseValue <$> (v .: "use_value"))
     <|> (Cond <$> (v .: "if")
@@ -871,7 +894,7 @@ instance FromJSON (Value Observation) where
   parseJSON (String "slot_interval_start") = return SlotIntervalStart
   parseJSON (String "slot_interval_end") = return SlotIntervalEnd
   parseJSON (Number n) = Constant <$> getInteger n
-  parseJSON _ = fail "Value must be either an object or an integer"
+  parseJSON _ = Haskell.fail "Value must be either an object or an integer"
 instance ToJSON (Value Observation) where
   toJSON (AvailableMoney accountId token) = object
       [ "amount_of_token" .= token
@@ -891,6 +914,10 @@ instance ToJSON (Value Observation) where
   toJSON (MulValue lhs rhs) = object
       [ "multiply" .= lhs
       , "times" .= rhs
+      ]
+  toJSON (DivValue lhs rhs) = object
+      [ "divide" .= lhs
+      , "by" .= rhs
       ]
   toJSON (Scale rat v) = object
       [ "multiply" .= v
@@ -932,7 +959,7 @@ instance FromJSON Observation where
                  <*> (v .: "le_than"))
     <|> (ValueEQ <$> (v .: "value")
                  <*> (v .: "equal_to"))
-  parseJSON _ = fail "Observation must be either an object or a boolean"
+  parseJSON _ = Haskell.fail "Observation must be either an object or a boolean"
 
 instance ToJSON Observation where
   toJSON (AndObs lhs rhs) = object
@@ -1054,7 +1081,7 @@ instance FromJSON Contract where
              <*> (v .: "then"))
     <|> (Assert <$> (v .: "assert")
                 <*> (v .: "then"))
-  parseJSON _ = fail "Contract must be either an object or a the string \"close\""
+  parseJSON _ = Haskell.fail "Contract must be either an object or a the string \"close\""
 
 instance ToJSON Contract where
   toJSON Close = JSON.String $ pack "close"
@@ -1097,7 +1124,7 @@ instance FromJSON TransactionInput where
                to <- Slot <$> (withInteger =<< (v .: "to"))
                return (from, to)
                                                       )
-  parseJSON _ = fail "TransactionInput must be an object"
+  parseJSON _ = Haskell.fail "TransactionInput must be an object"
 
 instance ToJSON TransactionInput where
   toJSON (TransactionInput (Slot from, Slot to) txInps) = object
@@ -1129,7 +1156,7 @@ instance FromJSON TransactionWarning where
     <|> (TransactionShadowing <$> (v .: "value_id")
                               <*> (v .: "had_value")
                               <*> (v .: "is_now_assigned"))
-  parseJSON _ = fail "Contract must be either an object or a the string \"close\""
+  parseJSON _ = Haskell.fail "Contract must be either an object or a the string \"close\""
 
 instance ToJSON TransactionWarning where
   toJSON (TransactionNonPositiveDeposit party accId tok amount) = object
@@ -1191,7 +1218,7 @@ instance Eq Payee where
 
 instance Eq Payment where
     {-# INLINABLE (==) #-}
-    Payment p1 m1 == Payment p2 m2 = p1 == p2 && m1 == m2
+    Payment a1 p1 m1 == Payment a2 p2 m2 = a1 == a2 && p1 == p2 && m1 == m2
 
 
 instance Eq ReduceWarning where
@@ -1222,6 +1249,7 @@ instance Eq a => Eq (Value a) where
     AddValue val1 val2 == AddValue val3 val4 = val1 == val3 && val2 == val4
     SubValue val1 val2 == SubValue val3 val4 = val1 == val3 && val2 == val4
     MulValue val1 val2 == MulValue val3 val4 = val1 == val3 && val2 == val4
+    DivValue val1 val2 == DivValue val3 val4 = val1 == val3 && val2 == val4
     Scale s1 val1 == Scale s2 val2 = s1 == s2 && val1 == val2
     ChoiceValue cid1 == ChoiceValue cid2 = cid1 == cid2
     SlotIntervalStart == SlotIntervalStart = True
@@ -1304,6 +1332,7 @@ makeIsDataIndexed ''Value [
     ('AddValue,3),
     ('SubValue,4),
     ('MulValue,5),
+    ('DivValue,12),
     ('Scale,6),
     ('ChoiceValue,7),
     ('SlotIntervalStart, 8),

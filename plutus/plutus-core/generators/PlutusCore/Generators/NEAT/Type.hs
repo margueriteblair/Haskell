@@ -39,10 +39,11 @@ newtype Neutral a = Neutral
 
 data TypeBuiltinG = TyByteStringG
                   | TyIntegerG
-                  | TyStringG
                   | TyBoolG
                   | TyUnitG
-                  | TyCharG
+                  | TyStringG
+                  | TyListG TypeBuiltinG
+                  | TyDataG
                       deriving (Show, Eq, Ord)
 
 deriveEnumerable ''TypeBuiltinG

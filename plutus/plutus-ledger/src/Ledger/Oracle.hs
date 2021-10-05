@@ -8,7 +8,6 @@
 {-# LANGUAGE TypeApplications   #-}
 {-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
-{-# OPTIONS_GHC -fno-strictness #-}
 {-# OPTIONS_GHC -fno-specialise #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 module Ledger.Oracle(
@@ -38,13 +37,13 @@ import           PlutusTx.Prelude
 
 import           Ledger.Constraints        (TxConstraints)
 import qualified Ledger.Constraints        as Constraints
+import           Ledger.Crypto             (PrivateKey, PubKey (..), Signature (..))
+import qualified Ledger.Crypto             as Crypto
+import           Ledger.Scripts            (Datum (..), DatumHash (..))
+import qualified Ledger.Scripts            as Scripts
 import           Plutus.V1.Ledger.Bytes
-import           Plutus.V1.Ledger.Contexts (ValidatorCtx)
-import           Plutus.V1.Ledger.Crypto   (PrivateKey, PubKey (..), Signature (..))
-import qualified Plutus.V1.Ledger.Crypto   as Crypto
-import           Plutus.V1.Ledger.Scripts  (Datum (..), DatumHash (..))
-import qualified Plutus.V1.Ledger.Scripts  as Scripts
-import           Plutus.V1.Ledger.Slot     (Slot)
+import           Plutus.V1.Ledger.Contexts (ScriptContext)
+import           Plutus.V1.Ledger.Time     (POSIXTime)
 
 import qualified Prelude                   as Haskell
 
@@ -71,14 +70,14 @@ import qualified Prelude                   as Haskell
 data Observation a = Observation
     { obsValue :: a
     -- ^ The value
-    , obsSlot  :: Slot
+    , obsTime  :: POSIXTime
     -- ^ The time at which the value was observed
-    } deriving (Generic, Haskell.Show)
+    } deriving (Generic, Haskell.Show, Haskell.Eq)
 
 instance Eq a => Eq (Observation a) where
     l == r =
         obsValue l == obsValue r
-        && obsSlot l == obsSlot r
+        && obsTime l == obsTime r
 
 -- | @SignedMessage a@ contains the signature of a hash of a 'Datum'.
 --   The 'Datum' can be decoded to a value of type @a@.
@@ -92,6 +91,12 @@ data SignedMessage a = SignedMessage
     deriving stock (Generic, Haskell.Show, Haskell.Eq)
     deriving anyclass (ToJSON, FromJSON)
 
+instance Eq a => Eq (SignedMessage a) where
+    l == r =
+        osmSignature l == osmSignature r
+        && osmMessageHash l == osmMessageHash r
+        && osmDatum l == osmDatum r
+
 data SignedMessageCheckError =
     SignatureMismatch Signature PubKey DatumHash
     -- ^ The signature did not match the public key
@@ -100,7 +105,7 @@ data SignedMessageCheckError =
     | DecodingError
     -- ^ The datum had the wrong shape
     | DatumNotEqualToExpected
-    -- ^ The datum that correponds to the hash is wrong
+    -- ^ The datum that corresponds to the hash is wrong
     deriving (Generic, Haskell.Show)
 
 {-# INLINABLE checkSignature #-}
@@ -122,26 +127,26 @@ checkSignature datumHash pubKey signature_ =
         else Left $ SignatureMismatch signature_ pubKey datumHash
 
 {-# INLINABLE checkHashConstraints #-}
--- | Extrat the contents of the message and produce a constraint that checks
+-- | Extract the contents of the message and produce a constraint that checks
 --   that the hash is correct. In off-chain code, where we check the hash
 --   straightforwardly, 'checkHashOffChain' can be used instead of this.
 checkHashConstraints ::
-    ( IsData a )
+    ( FromData a )
     => SignedMessage a
     -- ^ The signed message
     -> Either SignedMessageCheckError (a, TxConstraints i o)
 checkHashConstraints SignedMessage{osmMessageHash, osmDatum=Datum dt} =
     maybe
-        (trace "DecodingError" $ Left DecodingError)
+        (trace "Li" {-"DecodingError"-} $ Left DecodingError)
         (\a -> pure (a, Constraints.mustHashDatum osmMessageHash (Datum dt)))
-        (fromData dt)
+        (fromBuiltinData dt)
 
 {-# INLINABLE verifySignedMessageConstraints #-}
 -- | Check the signature on a 'SignedMessage' and extract the contents of the
 --   message, producing a 'TxConstraint' value that ensures the hashes match
 --   up.
 verifySignedMessageConstraints ::
-    ( IsData a)
+    ( FromData a)
     => PubKey
     -> SignedMessage a
     -> Either SignedMessageCheckError (a, TxConstraints i o)
@@ -153,35 +158,35 @@ verifySignedMessageConstraints pk s@SignedMessage{osmSignature, osmMessageHash} 
 -- | Check the signature on a 'SignedMessage' and extract the contents of the
 --   message, using the pending transaction in lieu of a hash function. See
 --   'verifySignedMessageConstraints' for a version that does not require a
---   'ValidatorCtx' value.
+--   'ScriptContext' value.
 verifySignedMessageOnChain ::
-    ( IsData a)
-    => ValidatorCtx
+    ( FromData a)
+    => ScriptContext
     -> PubKey
     -> SignedMessage a
     -> Either SignedMessageCheckError a
 verifySignedMessageOnChain ptx pk s@SignedMessage{osmSignature, osmMessageHash} = do
     checkSignature osmMessageHash pk osmSignature
     (a, constraints) <- checkHashConstraints s
-    unless (Constraints.checkValidatorCtx @() @() constraints ptx)
+    unless (Constraints.checkScriptContext @() @() constraints ptx)
         (Left $ DatumMissing osmMessageHash)
     pure a
 
 -- | The off-chain version of 'checkHashConstraints', using the hash function
---   directly instead of obtaining the hash from a 'ValidatorCtx' value
+--   directly instead of obtaining the hash from a 'ScriptContext' value
 checkHashOffChain ::
-    ( IsData a )
+    ( FromData a )
     => SignedMessage a
     -> Either SignedMessageCheckError a
 checkHashOffChain SignedMessage{osmMessageHash, osmDatum=dt} = do
     unless (osmMessageHash == Scripts.datumHash dt) (Left DatumNotEqualToExpected)
     let Datum dv = dt
-    maybe (Left DecodingError) pure (fromData dv)
+    maybe (Left DecodingError) pure (fromBuiltinData dv)
 
 -- | Check the signature on a 'SignedMessage' and extract the contents of the
 --   message.
 verifySignedMessageOffChain ::
-    ( IsData a)
+    ( FromData a)
     => PubKey
     -> SignedMessage a
     -> Either SignedMessageCheckError a
@@ -191,9 +196,9 @@ verifySignedMessageOffChain pk s@SignedMessage{osmSignature, osmMessageHash} =
 
 -- | Encode a message of type @a@ as a @Data@ value and sign the
 --   hash of the datum.
-signMessage :: IsData a => a -> PrivateKey -> SignedMessage a
+signMessage :: ToData a => a -> PrivateKey -> SignedMessage a
 signMessage msg pk =
-  let dt = Datum (toData msg)
+  let dt = Datum (toBuiltinData msg)
       DatumHash msgHash = Scripts.datumHash dt
       sig     = Crypto.sign msgHash pk
   in SignedMessage
@@ -202,9 +207,9 @@ signMessage msg pk =
         , osmDatum = dt
         }
 
--- | Encode an observation of a value of type @a@ that was made at the given slot
-signObservation :: IsData a => Slot -> a -> PrivateKey -> SignedMessage (Observation a)
-signObservation sl vl = signMessage Observation{obsValue=vl, obsSlot=sl}
+-- | Encode an observation of a value of type @a@ that was made at the given time
+signObservation :: ToData a => POSIXTime -> a -> PrivateKey -> SignedMessage (Observation a)
+signObservation time vl = signMessage Observation{obsValue=vl, obsTime=time}
 
 makeLift ''SignedMessage
 makeIsDataIndexed ''SignedMessage [('SignedMessage,0)]

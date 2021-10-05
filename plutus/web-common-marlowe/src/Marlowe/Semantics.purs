@@ -1,7 +1,7 @@
 module Marlowe.Semantics where
 
 import Prelude
-import Control.Alt ((<|>))
+import Decode.Helpers ((<|>))
 import Control.Monad.Except.Trans (ExceptT)
 import Data.Array (catMaybes)
 import Data.BigInteger (BigInteger, fromInt)
@@ -53,7 +53,9 @@ instance encodeJsonParty :: Encode Party where
 instance decodeJsonParty :: Decode Party where
   decode a =
     (PK <$> decodeProp "pk_hash" a)
-      <|> (Role <$> decodeProp "role_token" a)
+      <|> ( \_ ->
+            Role <$> decodeProp "role_token" a
+        )
 
 instance showParty :: Show Party where
   show = genericShow
@@ -306,6 +308,7 @@ data Value
   | AddValue Value Value
   | SubValue Value Value
   | MulValue Value Value
+  | DivValue Value Value
   | Scale Rational Value
   | ChoiceValue ChoiceId
   | SlotIntervalStart
@@ -345,6 +348,11 @@ instance encodeJsonValue :: Encode Value where
       { multiply: lhs
       , times: rhs
       }
+  encode (DivValue lhs rhs) =
+    encode
+      { divide: lhs
+      , by: rhs
+      }
   encode (Scale (Rational num den) val) =
     encode
       { multiply: val
@@ -374,38 +382,56 @@ instance decodeJsonValue :: Decode Value where
         (pure SlotIntervalStart)
         (fail (ForeignError "Not \"slot_interval_start\" string"))
     )
-      <|> ( ifM ((\x -> x == "slot_interval_end") <$> decode a)
-            (pure SlotIntervalEnd)
-            (fail (ForeignError "Not \"slot_interval_end\" string"))
+      <|> ( \_ ->
+            ifM ((\x -> x == "slot_interval_end") <$> decode a)
+              (pure SlotIntervalEnd)
+              (fail (ForeignError "Not \"slot_interval_end\" string"))
         )
-      <|> ( AvailableMoney <$> decodeProp "in_account" a
-            <*> decodeProp "amount_of_token" a
+      <|> ( \_ ->
+            AvailableMoney <$> decodeProp "in_account" a
+              <*> decodeProp "amount_of_token" a
         )
-      <|> (Constant <$> decode a)
-      <|> (NegValue <$> decodeProp "negate" a)
-      <|> ( AddValue <$> decodeProp "add" a
-            <*> decodeProp "and" a
+      <|> ( \_ ->
+            Constant <$> decode a
         )
-      <|> ( SubValue <$> decodeProp "value" a
-            <*> decodeProp "minus" a
+      <|> ( \_ ->
+            NegValue <$> decodeProp "negate" a
         )
-      <|> ( if (hasProperty "divide_by" a) then
-            ( Scale
-                <$> ( Rational <$> decodeProp "times" a
-                      <*> decodeProp "divide_by" a
-                  )
-                <*> decodeProp "multiply" a
-            )
-          else
-            ( MulValue <$> decodeProp "multiply" a
-                <*> decodeProp "times" a
-            )
+      <|> ( \_ ->
+            AddValue <$> decodeProp "add" a
+              <*> decodeProp "and" a
         )
-      <|> (ChoiceValue <$> decodeProp "value_of_choice" a)
-      <|> (UseValue <$> decodeProp "use_value" a)
-      <|> ( Cond <$> decodeProp "if" a
-            <*> decodeProp "then" a
-            <*> decodeProp "else" a
+      <|> ( \_ ->
+            SubValue <$> decodeProp "value" a
+              <*> decodeProp "minus" a
+        )
+      <|> ( \_ ->
+            DivValue <$> decodeProp "divide" a
+              <*> decodeProp "by" a
+        )
+      <|> ( \_ ->
+            if (hasProperty "divide_by" a) then
+              ( Scale
+                  <$> ( Rational <$> decodeProp "times" a
+                        <*> decodeProp "divide_by" a
+                    )
+                  <*> decodeProp "multiply" a
+              )
+            else
+              ( MulValue <$> decodeProp "multiply" a
+                  <*> decodeProp "times" a
+              )
+        )
+      <|> ( \_ ->
+            ChoiceValue <$> decodeProp "value_of_choice" a
+        )
+      <|> ( \_ ->
+            UseValue <$> decodeProp "use_value" a
+        )
+      <|> ( \_ ->
+            Cond <$> decodeProp "if" a
+              <*> decodeProp "then" a
+              <*> decodeProp "else" a
         )
 
 instance showValue :: Show Value where
@@ -490,32 +516,44 @@ instance decodeJsonObservation :: Decode Observation where
         (pure TrueObs)
         (fail (ForeignError "Not a boolean"))
     )
-      <|> ( ifM (not <$> decode a)
-            (pure FalseObs)
-            (fail (ForeignError "Not a boolean"))
+      <|> ( \_ ->
+            ifM (not <$> decode a)
+              (pure FalseObs)
+              (fail (ForeignError "Not a boolean"))
         )
-      <|> ( AndObs <$> decodeProp "both" a
-            <*> decodeProp "and" a
+      <|> ( \_ ->
+            AndObs <$> decodeProp "both" a
+              <*> decodeProp "and" a
         )
-      <|> ( OrObs <$> decodeProp "either" a
-            <*> decodeProp "or" a
+      <|> ( \_ ->
+            OrObs <$> decodeProp "either" a
+              <*> decodeProp "or" a
         )
-      <|> (NotObs <$> decodeProp "not" a)
-      <|> (ChoseSomething <$> decodeProp "chose_something_for" a)
-      <|> ( ValueGE <$> decodeProp "value" a
-            <*> decodeProp "ge_than" a
+      <|> ( \_ ->
+            NotObs <$> decodeProp "not" a
         )
-      <|> ( ValueGT <$> decodeProp "value" a
-            <*> decodeProp "gt" a
+      <|> ( \_ ->
+            ChoseSomething <$> decodeProp "chose_something_for" a
         )
-      <|> ( ValueLT <$> decodeProp "value" a
-            <*> decodeProp "lt" a
+      <|> ( \_ ->
+            ValueGE <$> decodeProp "value" a
+              <*> decodeProp "ge_than" a
         )
-      <|> ( ValueLE <$> decodeProp "value" a
-            <*> decodeProp "le_than" a
+      <|> ( \_ ->
+            ValueGT <$> decodeProp "value" a
+              <*> decodeProp "gt" a
         )
-      <|> ( ValueEQ <$> decodeProp "value" a
-            <*> decodeProp "equal_to" a
+      <|> ( \_ ->
+            ValueLT <$> decodeProp "value" a
+              <*> decodeProp "lt" a
+        )
+      <|> ( \_ ->
+            ValueLE <$> decodeProp "value" a
+              <*> decodeProp "le_than" a
+        )
+      <|> ( \_ ->
+            ValueEQ <$> decodeProp "value" a
+              <*> decodeProp "equal_to" a
         )
 
 instance showObservation :: Show Observation where
@@ -650,10 +688,13 @@ instance decodeJsonAction :: Decode Action where
         <*> decodeProp "of_token" a
         <*> decodeProp "deposits" a
     )
-      <|> ( Choice <$> decodeProp "for_choice" a
-            <*> decodeProp "choose_between" a
+      <|> ( \_ ->
+            Choice <$> decodeProp "for_choice" a
+              <*> decodeProp "choose_between" a
         )
-      <|> (Notify <$> decodeProp "notify_if" a)
+      <|> ( \_ ->
+            Notify <$> decodeProp "notify_if" a
+        )
 
 instance showAction :: Show Action where
   show (Choice cid bounds) = "(Choice " <> show cid <> " " <> show bounds <> ")"
@@ -683,7 +724,9 @@ instance encodeJsonPayee :: Encode Payee where
 instance decodeJsonPayee :: Decode Payee where
   decode a =
     (Account <$> decodeProp "account" a)
-      <|> (Party <$> decodeProp "party" a)
+      <|> ( \_ ->
+            Party <$> decodeProp "party" a
+        )
 
 instance showPayee :: Show Payee where
   show v = genericShow v
@@ -781,26 +824,31 @@ instance decodeJsonContract :: Decode Contract where
         (pure Close)
         (fail (ForeignError "Not \"close\" string"))
     )
-      <|> ( Pay <$> decodeProp "from_account" a
-            <*> decodeProp "to" a
-            <*> decodeProp "token" a
-            <*> decodeProp "pay" a
-            <*> decodeProp "then" a
+      <|> ( \_ ->
+            Pay <$> decodeProp "from_account" a
+              <*> decodeProp "to" a
+              <*> decodeProp "token" a
+              <*> decodeProp "pay" a
+              <*> decodeProp "then" a
         )
-      <|> ( If <$> decodeProp "if" a
-            <*> decodeProp "then" a
-            <*> decodeProp "else" a
+      <|> ( \_ ->
+            If <$> decodeProp "if" a
+              <*> decodeProp "then" a
+              <*> decodeProp "else" a
         )
-      <|> ( When <$> decodeProp "when" a
-            <*> decodeProp "timeout" a
-            <*> decodeProp "timeout_continuation" a
+      <|> ( \_ ->
+            When <$> decodeProp "when" a
+              <*> decodeProp "timeout" a
+              <*> decodeProp "timeout_continuation" a
         )
-      <|> ( Let <$> decodeProp "let" a
-            <*> decodeProp "be" a
-            <*> decodeProp "then" a
+      <|> ( \_ ->
+            Let <$> decodeProp "let" a
+              <*> decodeProp "be" a
+              <*> decodeProp "then" a
         )
-      <|> ( Assert <$> decodeProp "assert" a
-            <*> decodeProp "then" a
+      <|> ( \_ ->
+            Assert <$> decodeProp "assert" a
+              <*> decodeProp "then" a
         )
 
 instance showContract :: Show Contract where
@@ -914,13 +962,15 @@ instance decodeJsonInput :: Decode Input where
         (pure INotify)
         (fail (ForeignError "Not \"input_notify\" string"))
     )
-      <|> ( IDeposit <$> decodeProp "into_account" a
-            <*> decodeProp "input_from_party" a
-            <*> decodeProp "of_token" a
-            <*> decodeProp "that_deposits" a
+      <|> ( \_ ->
+            IDeposit <$> decodeProp "into_account" a
+              <*> decodeProp "input_from_party" a
+              <*> decodeProp "of_token" a
+              <*> decodeProp "that_deposits" a
         )
-      <|> ( IChoice <$> decodeProp "for_choice_id" a
-            <*> decodeProp "input_that_chooses_num" a
+      <|> ( \_ ->
+            IChoice <$> decodeProp "for_choice_id" a
+              <*> decodeProp "input_that_chooses_num" a
         )
 
 -- Processing of slot interval
@@ -958,7 +1008,7 @@ instance showIntervalResult :: Show IntervalResult where
   show v = genericShow v
 
 data Payment
-  = Payment Party Money
+  = Payment AccountId Payee Money
 
 derive instance genericPayment :: Generic Payment _
 
@@ -1017,7 +1067,7 @@ instance showReduceStepResult :: Show ReduceStepResult where
   show = genericShow
 
 data ReduceResult
-  = ContractQuiescent (List ReduceWarning) (List Payment) State Contract
+  = ContractQuiescent Boolean (List ReduceWarning) (List Payment) State Contract
   | RRAmbiguousSlotIntervalError
 
 derive instance genericReduceResult :: Generic ReduceResult _
@@ -1054,7 +1104,7 @@ instance showApplyResult :: Show ApplyResult where
   show = genericShow
 
 data ApplyAllResult
-  = ApplyAllSuccess (List TransactionWarning) (List Payment) State Contract
+  = ApplyAllSuccess Boolean (List TransactionWarning) (List Payment) State Contract
   | ApplyAllNoMatchError
   | ApplyAllAmbiguousSlotIntervalError
 
@@ -1069,7 +1119,7 @@ data TransactionWarning
   = TransactionNonPositiveDeposit Party AccountId Token BigInteger
   | TransactionNonPositivePay AccountId Payee Token BigInteger
   | TransactionPartialPay AccountId Payee Token BigInteger BigInteger
-  --                                               ^ src    ^ dest ^ paid ^ expected
+  --                         ^ src    ^ dest       ^ paid     ^ expected
   | TransactionShadowing ValueId BigInteger BigInteger
   --                           oldVal ^  newVal ^
   | TransactionAssertionFailed
@@ -1120,28 +1170,31 @@ instance decodeTransactionWarning :: Decode TransactionWarning where
         (pure TransactionAssertionFailed)
         (fail (ForeignError "Not \"assertion_failed\" string"))
     )
-      <|> ( TransactionNonPositiveDeposit <$> decodeProp "party" a
-            <*> decodeProp "in_account" a
-            <*> decodeProp "of_token" a
-            <*> decodeProp "asked_to_deposit" a
+      <|> ( \_ ->
+            TransactionNonPositiveDeposit <$> decodeProp "party" a
+              <*> decodeProp "in_account" a
+              <*> decodeProp "of_token" a
+              <*> decodeProp "asked_to_deposit" a
         )
-      <|> ( if (hasProperty "but_only_paid" a) then
-            ( TransactionPartialPay <$> decodeProp "account" a
-                <*> decodeProp "to_payee" a
-                <*> decodeProp "of_token" a
-                <*> decodeProp "but_only_paid" a
-                <*> decodeProp "asked_to_pay" a
-            )
-          else
-            ( TransactionNonPositivePay <$> decodeProp "account" a
-                <*> decodeProp "to_payee" a
-                <*> decodeProp "of_token" a
-                <*> decodeProp "asked_to_pay" a
-            )
+      <|> ( \_ ->
+            if (hasProperty "but_only_paid" a) then
+              ( TransactionPartialPay <$> decodeProp "account" a
+                  <*> decodeProp "to_payee" a
+                  <*> decodeProp "of_token" a
+                  <*> decodeProp "but_only_paid" a
+                  <*> decodeProp "asked_to_pay" a
+              )
+            else
+              ( TransactionNonPositivePay <$> decodeProp "account" a
+                  <*> decodeProp "to_payee" a
+                  <*> decodeProp "of_token" a
+                  <*> decodeProp "asked_to_pay" a
+              )
         )
-      <|> ( TransactionShadowing <$> decodeProp "value_id" a
-            <*> decodeProp "had_value" a
-            <*> decodeProp "is_now_assigned" a
+      <|> ( \_ ->
+            TransactionShadowing <$> decodeProp "value_id" a
+              <*> decodeProp "had_value" a
+              <*> decodeProp "is_now_assigned" a
         )
 
 -- | Transaction error
@@ -1229,6 +1282,59 @@ derive instance eqTransactionOutput :: Eq TransactionOutput
 instance showTransactionOutput :: Show TransactionOutput where
   show = genericShow
 
+newtype MarloweData
+  = MarloweData
+  { marloweContract :: Contract
+  , marloweState :: State
+  }
+
+derive instance eqMarloweData :: Eq MarloweData
+
+derive instance newtypeMarloweData :: Newtype MarloweData _
+
+derive instance genericMarloweData :: Generic MarloweData _
+
+instance encodeMarloweData :: Encode MarloweData where
+  encode a = genericEncode aesonCompatibleOptions a
+
+instance decodeMarloweData :: Decode MarloweData where
+  decode a = genericDecode aesonCompatibleOptions a
+
+_marloweContract :: Lens' MarloweData Contract
+_marloweContract = _Newtype <<< prop (SProxy :: SProxy "marloweContract")
+
+_marloweState :: Lens' MarloweData State
+_marloweState = _Newtype <<< prop (SProxy :: SProxy "marloweState")
+
+newtype MarloweParams
+  = MarloweParams
+  { rolePayoutValidatorHash :: ValidatorHash
+  , rolesCurrency :: { unCurrencySymbol :: CurrencySymbol } -- this is to ensure the serialisation matches the backend
+  }
+
+derive instance eqMarloweParams :: Eq MarloweParams
+
+derive instance ordMarloweParams :: Ord MarloweParams
+
+derive instance newtypeMarloweParams :: Newtype MarloweParams _
+
+derive instance genericMarloweParams :: Generic MarloweParams _
+
+instance encodeMarloweParams :: Encode MarloweParams where
+  encode a = genericEncode aesonCompatibleOptions a
+
+instance decodeMarloweParams :: Decode MarloweParams where
+  decode a = genericDecode aesonCompatibleOptions a
+
+_rolePayoutValidatorHash :: Lens' MarloweParams ValidatorHash
+_rolePayoutValidatorHash = _Newtype <<< prop (SProxy :: SProxy "rolePayoutValidatorHash")
+
+_rolesCurrency :: Lens' MarloweParams CurrencySymbol
+_rolesCurrency = _Newtype <<< prop (SProxy :: SProxy "rolesCurrency") <<< prop (SProxy :: SProxy "unCurrencySymbol")
+
+type ValidatorHash
+  = String
+
 emptyState :: Slot -> State
 emptyState sn =
   State
@@ -1281,6 +1387,38 @@ evalValue env state value =
       AddValue lhs rhs -> eval lhs + eval rhs
       SubValue lhs rhs -> eval lhs - eval rhs
       MulValue lhs rhs -> eval lhs * eval rhs
+      DivValue lhs rhs ->
+        let
+          n = eval lhs
+        in
+          if n == fromInt 0 then
+            fromInt 0
+          else
+            let
+              d = eval rhs
+            in
+              if d == fromInt 0 then
+                fromInt 0
+              else
+                let
+                  q = n `div` d
+
+                  r = n `mod` d
+
+                  ar = abs r * fromInt 2
+
+                  ad = abs d
+                in
+                  if ar < ad then
+                    q -- reminder < 1/2
+                  else
+                    if ar > ad then
+                      q + signum n * signum d -- reminder > 1/2
+                    else
+                      let -- reminder == 1/2
+                        qIsEven = q `mod` fromInt 2 == fromInt 0
+                      in
+                        if qIsEven then q else q + signum n * signum d
       Scale (Rational n d) rhs ->
         let
           nn = eval rhs * n
@@ -1356,14 +1494,14 @@ addMoneyToAccount accId token amount accounts =
 {-| Gives the given amount of money to the given payee.
     Returns the appropriate effect and updated accounts
 -}
-giveMoney :: Payee -> Token -> BigInteger -> Accounts -> Tuple ReduceEffect Accounts
-giveMoney payee token@(Token cur tok) amount accounts = case payee of
-  Party party -> Tuple (ReduceWithPayment (Payment party (asset cur tok amount))) accounts
-  Account accId ->
-    let
-      newAccs = addMoneyToAccount accId token amount accounts
-    in
-      Tuple ReduceNoPayment newAccs
+giveMoney :: AccountId -> Payee -> Token -> BigInteger -> Accounts -> Tuple ReduceEffect Accounts
+giveMoney accountId payee token@(Token cur tok) amount accounts =
+  let
+    newAccounts = case payee of
+      Party _ -> accounts
+      Account accId -> addMoneyToAccount accId token amount accounts
+  in
+    Tuple (ReduceWithPayment (Payment accountId payee (asset cur tok amount))) newAccounts
 
 -- | Carry a step of the contract with no inputs
 reduceContractStep :: Environment -> State -> Contract -> ReduceStepResult
@@ -1375,7 +1513,7 @@ reduceContractStep env state contract = case contract of
 
         newState = wrap (oldState { accounts = newAccounts })
       in
-        Reduced ReduceNoWarning (ReduceWithPayment (Payment party money)) newState Close
+        Reduced ReduceNoWarning (ReduceWithPayment (Payment party (Party party) money)) newState Close
     Nothing -> NotReduced
   Pay accId payee tok val cont ->
     let
@@ -1402,7 +1540,7 @@ reduceContractStep env state contract = case contract of
             else
               ReduceNoWarning
 
-          (Tuple payment finalAccs) = giveMoney payee tok paidAmount newAccs
+          (Tuple payment finalAccs) = giveMoney accId payee tok paidAmount newAccs
 
           newState = wrap ((unwrap state) { accounts = finalAccs })
         in
@@ -1451,8 +1589,8 @@ reduceContractUntilQuiescent :: Environment -> State -> Contract -> ReduceResult
 reduceContractUntilQuiescent startEnv startState startContract =
   let
     reductionLoop ::
-      Environment -> State -> Contract -> (List ReduceWarning) -> (List Payment) -> ReduceResult
-    reductionLoop env state contract warnings payments = case reduceContractStep env state contract of
+      Boolean -> Environment -> State -> Contract -> (List ReduceWarning) -> (List Payment) -> ReduceResult
+    reductionLoop reduced env state contract warnings payments = case reduceContractStep env state contract of
       Reduced warning effect newState nextContract ->
         let
           newWarnings = if warning == ReduceNoWarning then warnings else warning : warnings
@@ -1461,12 +1599,12 @@ reduceContractUntilQuiescent startEnv startState startContract =
             ReduceWithPayment payment -> payment : payments
             ReduceNoPayment -> payments
         in
-          reductionLoop env newState nextContract newWarnings newPayments
+          reductionLoop true env newState nextContract newWarnings newPayments
       AmbiguousSlotIntervalReductionError -> RRAmbiguousSlotIntervalError
       -- this is the last invocation of reductionLoop, so we can reverse lists
-      NotReduced -> ContractQuiescent (reverse warnings) (reverse payments) state contract
+      NotReduced -> ContractQuiescent reduced (reverse warnings) (reverse payments) state contract
   in
-    reductionLoop startEnv startState startContract mempty mempty
+    reductionLoop false startEnv startState startContract mempty mempty
 
 applyCases :: Environment -> State -> Input -> List Case -> ApplyResult
 applyCases env state input cases = case input, cases of
@@ -1529,6 +1667,7 @@ applyAllInputs :: Environment -> State -> Contract -> (List Input) -> ApplyAllRe
 applyAllInputs startEnv startState startContract startInputs =
   let
     applyAllLoop ::
+      Boolean ->
       Environment ->
       State ->
       Contract ->
@@ -1536,24 +1675,30 @@ applyAllInputs startEnv startState startContract startInputs =
       List TransactionWarning ->
       List Payment ->
       ApplyAllResult
-    applyAllLoop env state contract inputs warnings payments = case reduceContractUntilQuiescent env state contract of
+    applyAllLoop contractChanged env state contract inputs warnings payments = case reduceContractUntilQuiescent env state contract of
       RRAmbiguousSlotIntervalError -> ApplyAllAmbiguousSlotIntervalError
-      ContractQuiescent reduceWarns pays curState cont -> case inputs of
+      ContractQuiescent reduced reduceWarns pays curState cont -> case inputs of
         Nil ->
-          ApplyAllSuccess (warnings <> (convertReduceWarnings reduceWarns))
+          ApplyAllSuccess (contractChanged || reduced)
+            (warnings <> (convertReduceWarnings reduceWarns))
             (payments <> pays)
             curState
             cont
         (input : rest) -> case applyInput env curState input cont of
           Applied applyWarn newState nextContract ->
-            applyAllLoop env newState nextContract rest
+            applyAllLoop true env newState nextContract rest
               ( warnings <> (convertReduceWarnings reduceWarns)
                   <> (convertApplyWarning applyWarn)
               )
               (payments <> pays)
           ApplyNoMatchError -> ApplyAllNoMatchError
   in
-    applyAllLoop startEnv startState startContract startInputs mempty mempty
+    applyAllLoop false startEnv startState startContract startInputs mempty mempty
+
+isClose :: Contract -> Boolean
+isClose Close = true
+
+isClose _ = false
 
 -- | Try to compute outputs of a transaction give its input
 computeTransaction :: TransactionInput -> State -> Contract -> TransactionOutput
@@ -1563,8 +1708,8 @@ computeTransaction tx state contract =
   in
     case fixInterval (unwrap tx).interval state of
       IntervalTrimmed env fixState -> case applyAllInputs env fixState contract inputs of
-        ApplyAllSuccess warnings payments newState cont ->
-          if (contract == cont) && ((contract /= Close) || (Map.isEmpty $ (unwrap state).accounts)) then
+        ApplyAllSuccess reduced warnings payments newState cont ->
+          if not reduced && (not (isClose contract) || (Map.isEmpty $ (unwrap state).accounts)) then
             Error TEUselessTransaction
           else
             TransactionOutput
@@ -1577,20 +1722,6 @@ computeTransaction tx state contract =
         ApplyAllAmbiguousSlotIntervalError -> Error TEAmbiguousSlotIntervalError
       IntervalError error -> Error (TEIntervalError error)
 
-extractRequiredActionsWithTxs :: TransactionInput -> State -> Contract -> Tuple State (Array Action)
-extractRequiredActionsWithTxs txInput state contract
-  | TransactionOutput { txOutContract, txOutState } <- computeTransaction txInput state contract = Tuple txOutState (extractRequiredActions txOutContract)
-  | TransactionInput { inputs: Nil } <- txInput
-  , IntervalTrimmed env fixState <- fixInterval (unwrap txInput).interval state
-  , (ContractQuiescent _ _ _ reducedContract) <- reduceContractUntilQuiescent env fixState contract = Tuple fixState (extractRequiredActions reducedContract)
-  -- the actions remain unchanged in error cases, cases where the contract is not reduced or cases where inputs remain
-  | otherwise = Tuple state (extractRequiredActions contract)
-
-extractRequiredActions :: Contract -> Array Action
-extractRequiredActions contract = case contract of
-  (When cases _ _) -> map (\(Case action _) -> action) cases
-  _ -> mempty
-
 moneyInContract :: State -> Money
 moneyInContract state =
   foldMapWithIndex
@@ -1601,6 +1732,11 @@ newtype Timeouts
   = Timeouts { maxTime :: Timeout, minTime :: Maybe Timeout }
 
 derive instance newtypeTimeouts :: Newtype Timeouts _
+
+-- The eq and show instances are only needed for quickcheck
+derive newtype instance eqTimeouts :: Eq Timeouts
+
+derive newtype instance showTimeouts :: Show Timeouts
 
 class HasTimeout a where
   timeouts :: a -> Timeouts

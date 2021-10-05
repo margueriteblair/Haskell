@@ -20,7 +20,6 @@ library
         Control.Monad.Trace
         Control.Monad.Web
         Gist
-        Git
         Language.Haskell.Interpreter
         PSGenerator.Common
         Playground.API
@@ -33,11 +32,9 @@ library
         Servant.Extra
         Servant.Prometheus
         System.IO.Extras
-    other-modules:
-        Git.TH
     hs-source-dirs: src
     default-language: Haskell2010
-    ghc-options: -Wall -Wcompat
+    ghc-options: -Wall -Wcompat -Wunused-packages
                  -Wincomplete-uni-patterns -Wincomplete-record-updates
                  -Wmissing-import-lists -Wredundant-constraints
     build-depends:
@@ -49,11 +46,9 @@ library
         cookie -any,
         cryptonite -any,
         containers -any,
+        data-default -any,
         deriving-compat -any,
-        directory -any,
         exceptions -any,
-        filepath -any,
-        file-embed -any,
         hashable -any,
         http-client -any,
         http-client-tls -any,
@@ -67,20 +62,19 @@ library
         newtype-generics -any,
         process -any,
         prometheus >=2,
+        plutus-chain-index -any,
         plutus-contract -any,
         plutus-ledger -any,
         row-types -any,
         prettyprinter -any,
         plutus-tx -any,
         purescript-bridge -any,
-        recursion-schemes -any,
-        safe-exceptions -any,
+        recursion-schemes < 5.2,
         servant >= 0.16,
         servant-client -any,
         servant-purescript -any,
         servant-server -any,
         servant-websockets -any,
-        temporary -any,
         template-haskell -any,
         text -any,
         time -any,
@@ -89,11 +83,11 @@ library
         transformers -any,
         unordered-containers -any,
         wai -any,
-        wl-pprint-text -any,
         freer-simple -any,
         uuid -any,
         streaming -any,
-        foldl -any
+        foldl -any,
+        openapi3 -any
 
 test-suite playground-common-test
     type: exitcode-stdio-1.0
@@ -123,6 +117,5 @@ test-suite playground-common-test
         playground-common -any,
         plutus-ledger -any,
         plutus-contract -any,
-        recursion-schemes -any,
-        text -any,
-        wl-pprint-text -any
+        recursion-schemes < 5.2,
+        text -any

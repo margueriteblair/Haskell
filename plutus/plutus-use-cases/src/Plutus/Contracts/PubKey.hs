@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,7 +14,7 @@
 --   contract. This is useful if you need something that behaves like
 --   a pay-to-pubkey output, but is not (easily) identified by wallets
 --   as one.
-module Plutus.Contracts.PubKey(pubKeyContract, scriptInstance, PubKeyError(..), AsPubKeyError(..)) where
+module Plutus.Contracts.PubKey(pubKeyContract, typedValidator, PubKeyError(..), AsPubKeyError(..)) where
 
 import           Control.Lens
 import           Control.Monad.Error.Lens
@@ -23,26 +22,26 @@ import           Data.Aeson               (FromJSON, ToJSON)
 import qualified Data.Map                 as Map
 import           GHC.Generics             (Generic)
 
-import           Ledger                   as Ledger hiding (initialise, to)
+import           Ledger                   hiding (initialise, to)
 import           Ledger.Contexts          as V
-import           Ledger.Typed.Scripts     (ScriptInstance)
+import           Ledger.Typed.Scripts     (TypedValidator)
 import qualified Ledger.Typed.Scripts     as Scripts
-import qualified PlutusTx                 as PlutusTx
+import qualified PlutusTx
 
 import qualified Ledger.Constraints       as Constraints
 import           Plutus.Contract          as Contract
 
-mkValidator :: PubKeyHash -> () -> () -> ValidatorCtx -> Bool
-mkValidator pk' _ _ p = V.txSignedBy (valCtxTxInfo p) pk'
+mkValidator :: PubKeyHash -> () -> () -> ScriptContext -> Bool
+mkValidator pk' _ _ p = V.txSignedBy (scriptContextTxInfo p) pk'
 
 data PubKeyContract
 
-instance Scripts.ScriptType PubKeyContract where
+instance Scripts.ValidatorTypes PubKeyContract where
     type instance RedeemerType PubKeyContract = ()
     type instance DatumType PubKeyContract = ()
 
-scriptInstance :: PubKeyHash -> Scripts.ScriptInstance PubKeyContract
-scriptInstance = Scripts.validatorParam @PubKeyContract
+typedValidator :: PubKeyHash -> Scripts.TypedValidator PubKeyContract
+typedValidator = Scripts.mkTypedValidatorParam @PubKeyContract
     $$(PlutusTx.compile [|| mkValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
     where
@@ -64,25 +63,26 @@ instance AsContractError PubKeyError where
 --   and a 'TxIn' transaction input that can spend it.
 pubKeyContract
     :: forall w s e.
-    ( HasWriteTx s
-    , HasTxConfirmation s
-    , AsPubKeyError e
+    ( AsPubKeyError e
     )
     => PubKeyHash
     -> Value
-    -> Contract w s e (TxOutRef, TxOutTx, ScriptInstance PubKeyContract)
+    -> Contract w s e (TxOutRef, Maybe ChainIndexTxOut, TypedValidator PubKeyContract)
 pubKeyContract pk vl = mapError (review _PubKeyError   ) $ do
-    let inst = scriptInstance pk
-        address = Scripts.scriptAddress inst
+    let inst = typedValidator pk
+        address = Scripts.validatorAddress inst
         tx = Constraints.mustPayToTheScript () vl
 
     ledgerTx <- submitTxConstraints inst tx
 
     _ <- awaitTxConfirmed (txId ledgerTx)
-    let output = Map.toList
-                $ Map.filter ((==) address . txOutAddress)
-                $ unspentOutputsTx ledgerTx
-    case output of
+    let refs = Map.keys
+               $ Map.filter ((==) address . txOutAddress)
+               $ unspentOutputsTx ledgerTx
+
+    case refs of
         []                   -> throwing _ScriptOutputMissing pk
-        [(outRef, outTxOut)] -> pure (outRef, TxOutTx{txOutTxTx = ledgerTx, txOutTxOut = outTxOut}, inst)
+        [outRef] -> do
+            ciTxOut <- txOutFromRef outRef
+            pure (outRef, ciTxOut, inst)
         _                    -> throwing _MultipleScriptOutputs pk

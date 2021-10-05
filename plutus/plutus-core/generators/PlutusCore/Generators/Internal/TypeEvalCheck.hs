@@ -23,19 +23,18 @@ import           PlutusPrelude
 import           PlutusCore.Generators.Internal.TypedBuiltinGen
 import           PlutusCore.Generators.Internal.Utils
 
-import           PlutusCore.Builtins
 import           PlutusCore.Constant
 import           PlutusCore.Core
+import           PlutusCore.Default
 import           PlutusCore.Error
 import           PlutusCore.Evaluation.Machine.Ck
-import           PlutusCore.Evaluation.Machine.ExMemory
+import           PlutusCore.Evaluation.Machine.ExBudgetingDefaults (defaultBuiltinsRuntime)
 import           PlutusCore.Evaluation.Machine.Exception
 import           PlutusCore.Name
 import           PlutusCore.Normalize
 import           PlutusCore.Pretty
 import           PlutusCore.Quote
 import           PlutusCore.TypeCheck
-import           PlutusCore.Universe
 
 import           Control.Lens.TH
 import           Control.Monad.Except
@@ -77,7 +76,7 @@ data TypeEvalCheckResult uni fun = TypeEvalCheckResult
     }
 
 instance ( PrettyBy config (Type TyName uni ())
-         , PrettyBy config (Plain Term uni fun)
+         , PrettyBy config (Term TyName Name uni fun ())
          , PrettyBy config (Error uni fun ())
          ) => PrettyBy config (TypeEvalCheckError uni fun) where
     prettyBy config (TypeEvalCheckErrorIllFormed err)             =
@@ -97,17 +96,17 @@ type TypeEvalCheckM uni fun = Either (TypeEvalCheckError uni fun)
 -- See Note [Type-eval checking].
 -- | Type check and evaluate a term and check that the expected result is equal to the actual one.
 typeEvalCheckBy
-    :: ( uni ~ DefaultUni, fun ~ DefaultFun, KnownType (Plain Term uni fun) a
+    :: ( uni ~ DefaultUni, fun ~ DefaultFun, KnownType (Term TyName Name uni fun ()) a
        , PrettyPlc internal
        )
-    => (Plain Term uni fun ->
-           Either (EvaluationException user internal (Plain Term uni fun)) (Plain Term uni fun))
+    => (Term TyName Name uni fun () ->
+           Either (EvaluationException user internal (Term TyName Name uni fun ())) (Term TyName Name uni fun ()))
        -- ^ An evaluator.
     -> TermOf (Term TyName Name uni fun ()) a
     -> TypeEvalCheckM uni fun (TermOf (Term TyName Name uni fun ()) (TypeEvalCheckResult uni fun))
 typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> do
     let tyExpected = runQuote . normalizeType $ toTypeAst (Proxy @a)
-        valExpected = makeKnownNoEmit x
+        valExpected = makeKnownOrFail x
     tyActual <- runQuoteT $ do
         config <- getDefTypeCheckConfig ()
         inferType config term
@@ -127,7 +126,7 @@ unsafeTypeEvalCheck
     => TermOf (Term TyName Name uni fun ()) a
     -> TermOf (Term TyName Name uni fun ()) (EvaluationResult (Term TyName Name uni fun ()))
 unsafeTypeEvalCheck termOfTbv = do
-    let errOrRes = typeEvalCheckBy (evaluateCkNoEmit defBuiltinsRuntime) termOfTbv
+    let errOrRes = typeEvalCheckBy (evaluateCkNoEmit defaultBuiltinsRuntime) termOfTbv
     case errOrRes of
         Left err         -> error $ concat
             [ prettyPlcErrorString err

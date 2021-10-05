@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE NumericUnderscores  #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -22,9 +22,10 @@ import           Data.Aeson                            (decode, encode)
 import           Data.Aeson.Text                       (encodeToLazyText)
 import qualified Data.ByteString                       as BS
 import           Data.Default                          (Default (..))
-import           Data.Either                           (isRight)
+import           Data.Either                           (fromRight, isRight)
 import qualified Data.Map.Strict                       as Map
-import           Data.Maybe                            (isJust)
+import           Data.Maybe                            (isJust, isNothing)
+import           Data.Monoid                           (First (..))
 import           Data.Ratio                            ((%))
 import           Data.Set                              (Set)
 import qualified Data.Set                              as Set
@@ -39,11 +40,12 @@ import           Language.Marlowe.Analysis.FSSemantics
 import           Language.Marlowe.Client
 import           Language.Marlowe.Semantics
 import           Language.Marlowe.Util
-import           Ledger                                hiding (Value)
+import           Ledger                                (Slot (..), pubKeyHash, validatorHash)
 import           Ledger.Ada                            (lovelaceValueOf)
 import           Ledger.Constraints.TxConstraints      (TxConstraints)
-import           Ledger.Typed.Scripts                  (scriptHash, validatorScript)
+import qualified Ledger.Typed.Scripts                  as Scripts
 import qualified Ledger.Value                          as Val
+import qualified Plutus.Contract.StateMachine          as SM
 import           Plutus.Contract.Test                  hiding ((.&&.))
 import qualified Plutus.Contract.Test                  as T
 import           Plutus.Contract.Types                 (_observableState)
@@ -61,8 +63,8 @@ import           Test.Tasty.QuickCheck
 import qualified Wallet.Emulator.Folds                 as Folds
 import           Wallet.Emulator.Stream                (foldEmulatorStreamM, takeUntilSlot)
 
-{-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
-{-# ANN module ("HLint: ignore Redundant if" :: String) #-}
+{- HLINT ignore "Reduce duplication" -}
+{- HLINT ignore "Redundant if" -}
 
 tests :: TestTree
 tests = testGroup "Marlowe"
@@ -72,6 +74,9 @@ tests = testGroup "Marlowe"
     , testCase "State serializes into valid JSON" stateSerialization
     , testCase "Validator size is reasonable" validatorSize
     , testCase "Mul analysis" mulAnalysisTest
+    , testCase "Div analysis" divAnalysisTest
+    , testCase "Div tests" divTest
+    , testCase "Transfers between accounts work" transferBetweenAccountsTest
     , testCase "extractContractRoles" extractContractRolesTest
     , testProperty "Value equality is reflexive, symmetric, and transitive" checkEqValue
     , testProperty "Value double negation" doubleNegation
@@ -79,29 +84,33 @@ tests = testGroup "Marlowe"
     , testProperty "Values can be serialized to JSON" valueSerialization
     , testProperty "Scale Value multiplies by a constant rational" scaleMulTest
     , testProperty "Multiply by zero" mulTest
-    , testProperty "Scale rounding" scaleRoundingTest
+    , testProperty "Divide zero and by zero" divZeroTest
+    , testProperty "DivValue rounding" divisionRoundingTest
     , zeroCouponBondTest
+    , errorHandlingTest
     , trustFundTest
     ]
 
 
 alice, bob :: Wallet
-alice = Wallet 1
-bob = Wallet 2
+alice = w1
+bob = w2
 
 
 zeroCouponBondTest :: TestTree
-zeroCouponBondTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 250) "Zero Coupon Bond Contract"
+zeroCouponBondTest = checkPredicateOptions defaultCheckOptions "Zero Coupon Bond Contract"
     (assertNoFailedTransactions
     -- T..&&. emulatorLog (const False) ""
-    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should close"
-    T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should close"
-    T..&&. walletFundsChange alice (lovelaceValueOf (150))
+    T..&&. assertDone marlowePlutusContract (Trace.walletInstanceTag alice) (const True) "contract should close"
+    T..&&. assertDone marlowePlutusContract (Trace.walletInstanceTag bob) (const True) "contract should close"
+    T..&&. walletFundsChange alice (lovelaceValueOf 150)
     T..&&. walletFundsChange bob (lovelaceValueOf (-150))
+    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag alice) ((==) OK) "should be OK"
+    T..&&. assertAccumState marlowePlutusContract (Trace.walletInstanceTag bob) ((==) OK) "should be OK"
     ) $ do
     -- Init a contract
-    let alicePk = PK $ (pubKeyHash $ walletPubKey alice)
-        bobPk = PK $ (pubKeyHash $ walletPubKey bob)
+    let alicePk = PK (pubKeyHash $ walletPubKey alice)
+        bobPk = PK (pubKeyHash $ walletPubKey bob)
 
     let params = defaultMarloweParams
 
@@ -118,25 +127,66 @@ zeroCouponBondTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 250
     Trace.callEndpoint @"create" aliceHdl (AssocMap.empty, zeroCouponBond)
     Trace.waitNSlots 2
 
-    Trace.callEndpoint @"wait" bobHdl (params)
-
-    Trace.callEndpoint @"apply-inputs" aliceHdl (params, [IDeposit alicePk alicePk ada 850])
+    Trace.callEndpoint @"apply-inputs" aliceHdl (params, Nothing, [IDeposit alicePk alicePk ada 850])
     Trace.waitNSlots 2
 
-    Trace.callEndpoint @"wait" aliceHdl (params)
+    Trace.callEndpoint @"apply-inputs" bobHdl (params, Nothing, [IDeposit alicePk bobPk ada 1000])
+    void $ Trace.waitNSlots 2
 
-    Trace.callEndpoint @"apply-inputs" bobHdl (params, [IDeposit alicePk bobPk ada 1000])
+    Trace.callEndpoint @"close" aliceHdl ()
+    Trace.callEndpoint @"close" bobHdl ()
     void $ Trace.waitNSlots 2
 
 
+errorHandlingTest :: TestTree
+errorHandlingTest = checkPredicateOptions defaultCheckOptions "Error handling"
+    (assertAccumState marlowePlutusContract (Trace.walletInstanceTag alice)
+    (\case (SomeError (TransitionError _)) -> True
+           _                               -> False
+    ) "should be fail with SomeError"
+    ) $ do
+    -- Init a contract
+    let alicePk = PK (pubKeyHash $ walletPubKey alice)
+        bobPk = PK (pubKeyHash $ walletPubKey bob)
+
+    let params = defaultMarloweParams
+
+    let zeroCouponBond = When [ Case
+            (Deposit alicePk alicePk ada (Constant 850))
+            (Pay alicePk (Party bobPk) ada (Constant 850)
+                (When
+                    [ Case (Deposit alicePk bobPk ada (Constant 1000)) Close] (Slot 200) Close
+                ))] (Slot 100) Close
+
+    bobHdl <- Trace.activateContractWallet bob marlowePlutusContract
+    aliceHdl <- Trace.activateContractWallet alice marlowePlutusContract
+
+    Trace.callEndpoint @"create" aliceHdl (AssocMap.empty, zeroCouponBond)
+    Trace.waitNSlots 2
+
+    Trace.callEndpoint @"apply-inputs" aliceHdl (params, Nothing, [IDeposit alicePk alicePk ada 1000])
+    Trace.waitNSlots 2
+    pure ()
+
+
 trustFundTest :: TestTree
-trustFundTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 200) "Trust Fund Contract"
+trustFundTest = checkPredicateOptions defaultCheckOptions "Trust Fund Contract"
     (assertNoFailedTransactions
     -- T..&&. emulatorLog (const False) ""
     T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag alice) "contract should not have any errors"
     T..&&. assertNotDone marlowePlutusContract (Trace.walletInstanceTag bob) "contract should not have any errors"
     T..&&. walletFundsChange alice (lovelaceValueOf (-256) <> Val.singleton (rolesCurrency params) "alice" 1)
     T..&&. walletFundsChange bob (lovelaceValueOf 256 <> Val.singleton (rolesCurrency params) "bob" 1)
+    -- TODO Commented out because the new chain index does not allow to fetch
+    -- all transactions that modified an address. Need to find an alternative
+    -- way.
+    --T..&&. assertAccumState marloweFollowContract "bob follow"
+    --    (\state@ContractHistory{chParams, chHistory} ->
+    --        case chParams of
+    --            First (Just (mp, MarloweData{marloweContract})) -> mp == params && marloweContract == contract
+    --            _                                               -> False) "follower contract state"
+    --        --mp MarloweData{marloweContract} history
+    --        -- chParams == (_ params) && chParams == (_ contract))
     ) $ do
 
     -- Init a contract
@@ -145,6 +195,7 @@ trustFundTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 200) "Tr
     bobHdl <- Trace.activateContractWallet bob marlowePlutusContract
     aliceHdl <- Trace.activateContractWallet alice marlowePlutusContract
     bobCompanionHdl <- Trace.activateContract bob marloweCompanionContract "bob companion"
+    bobFollowHdl <- Trace.activateContract bob marloweFollowContract "bob follow"
 
     Trace.callEndpoint @"create" aliceHdl
         (AssocMap.fromList [("alice", alicePkh), ("bob", bobPkh)],
@@ -155,17 +206,17 @@ trustFundTest = checkPredicateOptions (defaultCheckOptions & maxSlot .~ 200) "Tr
         [] -> pure ()
         (pms, _) : _ -> do
 
-            Trace.callEndpoint @"wait" bobHdl pms
-
-            Trace.callEndpoint @"apply-inputs" aliceHdl (pms,
+            Trace.callEndpoint @"apply-inputs" aliceHdl (pms, Nothing,
                 [ IChoice chId 256
                 , IDeposit "alice" "alice" ada 256
                 ])
             Trace.waitNSlots 17
 
-            Trace.callEndpoint @"wait" aliceHdl (pms)
+            -- get contract's history and start following our contract
+            Trace.callEndpoint @"follow" bobFollowHdl pms
+            Trace.waitNSlots 2
 
-            Trace.callEndpoint @"apply-inputs" bobHdl (pms, [INotify])
+            Trace.callEndpoint @"apply-inputs" bobHdl (pms, Nothing, [INotify])
 
             Trace.waitNSlots 2
             Trace.callEndpoint @"redeem" bobHdl (pms, "bob", bobPkh)
@@ -208,16 +259,16 @@ uniqueContractHash = do
             { rolesCurrency = cs
             , rolePayoutValidatorHash = validatorHash (rolePayoutScript cs) }
 
-    let hash1 = scriptHash $ scriptInstance (params "11")
-    let hash2 = scriptHash $ scriptInstance (params "22")
-    let hash3 = scriptHash $ scriptInstance (params "22")
+    let hash1 = Scripts.validatorHash $ typedValidator (params "11")
+    let hash2 = Scripts.validatorHash $ typedValidator (params "22")
+    let hash3 = Scripts.validatorHash $ typedValidator (params "22")
     assertBool "Hashes must be different" (hash1 /= hash2)
     assertBool "Hashes must be same" (hash2 == hash3)
 
 
 validatorSize :: IO ()
 validatorSize = do
-    let validator = validatorScript $ scriptInstance defaultMarloweParams
+    let validator = Scripts.validatorScript $ typedValidator defaultMarloweParams
     let vsize = BS.length $ Write.toStrictByteString (Serialise.encode validator)
     assertBool ("Validator is too large " <> show vsize) (vsize < 1100000)
 
@@ -276,17 +327,17 @@ valuesFormAbelianGroup = property $ do
         eval (SubValue (AddValue a b) b) === eval a
 
 
-scaleRoundingTest :: Property
-scaleRoundingTest = property $ do
+divisionRoundingTest :: Property
+divisionRoundingTest = property $ do
     let eval = evalValue (Environment (Slot 10, Slot 1000)) (emptyState (Slot 10))
     -- test half-even rounding
     let gen = do
             n <- amount
             d <- suchThat amount (/= 0)
             return (n, d)
-    forAll gen $ \(n, d) -> eval (Scale (n P.% d) (Constant 1)) === halfAwayRound (n % d)
+    forAll gen $ \(n, d) -> eval (DivValue (Constant n) (Constant d)) === halfEvenRound (n P.% d)
     where
-      halfAwayRound fraction = let (n,f) = properFraction fraction in n + round (f + 1) - 1
+      halfEvenRound = P.round
 
 
 scaleMulTest :: Property
@@ -301,6 +352,14 @@ mulTest = property $ do
     let eval = evalValue (Environment (Slot 10, Slot 1000)) (emptyState (Slot 10))
     forAll valueGen $ \a ->
         eval (MulValue (Constant 0) a) === 0
+
+
+divZeroTest :: Property
+divZeroTest = property $ do
+    let eval = evalValue (Environment (Slot 10, Slot 1000)) (emptyState (Slot 10))
+    forAll valueGen $ \a ->
+        eval (DivValue (Constant 0) a) === 0 .&&.
+        eval (DivValue a (Constant 0)) === 0
 
 
 valueSerialization :: Property
@@ -319,6 +378,59 @@ mulAnalysisTest = do
     result <- warningsTrace contract
     --print result
     assertBool "Analysis ok" $ isRight result
+
+
+transferBetweenAccountsTest :: IO ()
+transferBetweenAccountsTest = do
+    let state = State
+            { accounts = AssocMap.fromList [((Role "alice", Token "" ""), 100)]
+            , choices  = AssocMap.empty
+            , boundValues = AssocMap.empty
+            , minSlot = 10 }
+    let contract = Pay "alice" (Account "bob") (Token "" "") (Constant 100) (When [] 100 Close)
+    let marloweData = MarloweData {
+                marloweContract = contract,
+                marloweState = state }
+    let Just result@(constraints, SM.State (MarloweData {marloweState=State{accounts}}) balance) =
+            mkMarloweStateMachineTransition
+                defaultMarloweParams
+                (SM.State marloweData (lovelaceValueOf 100))
+                ((20, 30), [])
+    balance @=? lovelaceValueOf 100
+    assertBool "Accounts check" $ accounts == AssocMap.fromList [(("bob",Token "" ""), 100)]
+
+
+divAnalysisTest :: IO ()
+divAnalysisTest = do
+    let
+        alicePk = PK $ pubKeyHash $ walletPubKey alice
+        contract n d = If (DivValue (Constant n) (Constant d) `ValueGE` Constant 5)
+            Close
+            (Pay alicePk (Party alicePk) ada (Constant (-100)) Close)
+    result <- warningsTrace (contract 11 2)
+    assertBool "Analysis ok" $ isRight result && fromRight False (fmap isNothing result)
+    result <- warningsTrace (contract 9 2)
+    assertBool "Analysis ok" $ isRight result && fromRight False (fmap isJust result)
+
+    let eval = evalValue (Environment (Slot 10, Slot 1000)) (emptyState (Slot 10))
+    eval (DivValue (Constant 0) (Constant 2)) @=? 0
+    eval (DivValue (Constant 1) (Constant 0)) @=? 0
+    eval (DivValue (Constant 5) (Constant 2)) @=? 2
+    eval (DivValue (Constant (-5)) (Constant 2)) @=? -2
+    eval (DivValue (Constant 7) (Constant 2)) @=? 4
+    eval (DivValue (Constant (-7)) (Constant 2)) @=? -4
+
+
+divTest :: IO ()
+divTest = do
+    let eval = evalValue (Environment (Slot 10, Slot 1000)) (emptyState (Slot 10))
+    eval (DivValue (Constant 0) (Constant 2)) @=? 0
+    eval (DivValue (Constant 1) (Constant 0)) @=? 0
+    eval (DivValue (Constant 5) (Constant 2)) @=? 2
+    eval (DivValue (Constant (-5)) (Constant 2)) @=? -2
+    eval (DivValue (Constant 7) (Constant 2)) @=? 4
+    eval (DivValue (Constant (-7)) (Constant 2)) @=? -4
+
 
 
 pangramContractSerialization :: IO ()
@@ -408,4 +520,3 @@ jsonLoops cont = decode (encode cont) === Just cont
 
 prop_jsonLoops :: Property
 prop_jsonLoops = withMaxSuccess 1000 $ forAllShrink contractGen shrinkContract jsonLoops
-

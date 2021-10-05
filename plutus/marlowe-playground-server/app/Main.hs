@@ -11,10 +11,10 @@ where
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Logger   (MonadLogger, logInfoN, runStderrLoggingT)
 import qualified Data.Text              as Text
-import           Git                    (gitRev)
+import           Data.Time.Units        (Second)
 import           Options.Applicative    (CommandFields, Mod, Parser, argument, auto, command, customExecParser,
-                                         disambiguate, fullDesc, help, helper, idm, info, infoOption, long, metavar,
-                                         option, optional, prefs, progDesc, short, showDefault, showHelpOnEmpty,
+                                         disambiguate, fullDesc, help, helper, idm, info, long, metavar, option,
+                                         optional, prefs, progDesc, short, showDefault, showHelpOnEmpty,
                                          showHelpOnError, str, subparser, value)
 import qualified PSGenerator
 import qualified Webserver
@@ -27,15 +27,10 @@ import qualified Webserver
 -- line. The answer is for flags that rarely change, putting them in a
 -- config file makes development easier.
 data Command
-  = Webserver {_port :: !Int}
+  = Webserver {_port :: !Int, _maxInterpretationTime :: !Second}
   | PSGenerator {_outputDir :: !FilePath}
   deriving (Show, Eq)
 
-versionOption :: Parser (a -> a)
-versionOption =
-  infoOption
-    (Text.unpack gitRev)
-    (short 'v' <> long "version" <> help "Show the version")
 
 configFileParser :: Parser (Maybe FilePath)
 configFileParser =
@@ -73,10 +68,17 @@ webserverCommandParser =
               <> showDefault
               <> value 8080
           )
+      _maxInterpretationTime <-
+        option
+          auto
+          ( short 'i' <> long "interpretation" <> help "Max interpretation time (seconds)"
+              <> showDefault
+              <> value 80
+          )
       pure Webserver {..}
 
 runCommand :: (MonadIO m, MonadLogger m) => Maybe FilePath -> Command -> m ()
-runCommand secrets Webserver {..} = liftIO $ Webserver.run _port secrets
+runCommand secrets Webserver {..} = liftIO $ Webserver.run _port _maxInterpretationTime secrets
 runCommand _ PSGenerator {..}     = liftIO $ PSGenerator.generate _outputDir
 
 main :: IO ()
@@ -84,7 +86,7 @@ main = do
   options <-
     customExecParser
       (prefs $ disambiguate <> showHelpOnEmpty <> showHelpOnError)
-      (info (helper <*> versionOption <*> commandLineParser) idm)
+      (info (helper <*> commandLineParser) idm)
   runStderrLoggingT $ do
     logInfoN $ "Running: " <> Text.pack (show options)
     uncurry runCommand options

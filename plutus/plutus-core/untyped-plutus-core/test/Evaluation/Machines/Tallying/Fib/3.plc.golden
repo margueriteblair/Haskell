@@ -1,41 +1,41 @@
 ( (Right (2))
-, ({ tally: ({ BConst causes ({ cpu: 15
-| mem: 0
+, ({ tally: ({ BStep BConst causes ({ cpu: 446595
+| mem: 1500
 })
-| BVar causes ({ cpu: 59
-| mem: 0
+| BStep BVar causes ({ cpu: 1756607
+| mem: 5900
 })
-| BLamAbs causes ({ cpu: 46
-| mem: 0
+| BStep BLamAbs causes ({ cpu: 1369558
+| mem: 4600
 })
-| BApply causes ({ cpu: 86
-| mem: 0
+| BStep BApply causes ({ cpu: 2560478
+| mem: 8600
 })
-| BDelay causes ({ cpu: 13
-| mem: 0
+| BStep BDelay causes ({ cpu: 387049
+| mem: 1300
 })
-| BForce causes ({ cpu: 18
-| mem: 0
+| BStep BForce causes ({ cpu: 535914
+| mem: 1800
 })
-| BBuiltin causes ({ cpu: 16
-| mem: 0
+| BStep BBuiltin causes ({ cpu: 476368
+| mem: 1600
 })
-| BBuiltinApp AddInteger causes ({ cpu: 42370
-| mem: 40000
+| BBuiltinApp AddInteger causes ({ cpu: 394418
+| mem: 4
 })
-| BBuiltinApp SubtractInteger causes ({ cpu: 86628
-| mem: 1800000
+| BBuiltinApp SubtractInteger causes ({ cpu: 788836
+| mem: 8
 })
-| BBuiltinApp LessThanEqInteger causes ({ cpu: 105015
-| mem: 50000
+| BBuiltinApp LessThanEqualsInteger causes ({ cpu: 733210
+| mem: 5
 })
-| BBuiltinApp IfThenElse causes ({ cpu: 50000
-| mem: 50000
+| BBuiltinApp IfThenElse causes ({ cpu: 5
+| mem: 5
 })
-| BAST causes ({ cpu: 0
-| mem: 44
+| BStartup causes ({ cpu: 100
+| mem: 100
 })})
-| budget: ({ cpu: 284266
-| mem: 1940044
+| budget: ({ cpu: 9449138
+| mem: 25422
 })
 }) )

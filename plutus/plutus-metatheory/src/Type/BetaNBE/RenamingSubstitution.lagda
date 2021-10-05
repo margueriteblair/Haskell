@@ -1,6 +1,7 @@
 \begin{code}
 module Type.BetaNBE.RenamingSubstitution where
 
+open import Utils
 open import Type
 open import Type.Equality
 open import Type.RenamingSubstitution
@@ -380,7 +381,7 @@ sub[]Nf' : ∀{Φ Ψ K J}
 sub[]Nf' ρ A B =
   trans (sub[]Nf ρ A B)
   (subNf-cong' (subNf-cons (ne ∘ `) (subNf ρ A))
-     {A = subNf (extsNf (λ {K = K₁} → ρ)) B}
+     {A = subNf (extsNf ρ) B}
      {A' =
       reify
       (eval (sub (exts (embNf ∘ ρ)) (embNf B))

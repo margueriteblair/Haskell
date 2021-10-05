@@ -2,30 +2,23 @@
 , checkMaterialization
 , system ? builtins.currentSystem
 , config ? { allowUnfreePredicate = (import ../lib/unfree.nix).unfreePredicate; }
-, rev ? null
 , sources
 , enableHaskellProfiling
 }:
 let
   inherit (pkgs) stdenv;
 
-  iohkNix =
-    import sources.iohk-nix {
-      inherit system config;
-      # Make iohk-nix use our nixpkgs
-      sourcesOverride = { inherit (sources) nixpkgs; };
-    };
+  gitignore-nix = pkgs.callPackage sources.gitignore-nix { };
 
-  gitignore-nix = pkgs.callPackage sources."gitignore.nix" { };
-
-  # The git revision comes from `rev` if available (Hydra), otherwise
-  # it is read using IFD and git, which is avilable on local builds.
-  git-rev = if isNull rev then pkgs.lib.commitIdFromGitRepo ../../.git else rev;
-
-  # { index-state, project, projectPackages, packages, extraPackages }
+  # { index-state, compiler-nix-name, project, projectPackages, packages, extraPackages }
   haskell = pkgs.callPackage ./haskell {
-    inherit gitignore-nix;
+    inherit gitignore-nix sources;
     inherit agdaWithStdlib checkMaterialization enableHaskellProfiling;
+    inherit (sources) actus-tests;
+
+    # This ensures that the utility scripts produced in here will run on the current system, not
+    # the build system, so we can run e.g. the darwin ones on linux
+    inherit (pkgs.evalPackages) writeShellScript;
   };
 
   #
@@ -33,11 +26,17 @@ let
   #
   exeFromExtras = x: haskell.extraPackages."${x}".components.exes."${x}";
   cabal-install = haskell.extraPackages.cabal-install.components.exes.cabal;
+  cardano-repo-tool = exeFromExtras "cardano-repo-tool";
   stylish-haskell = exeFromExtras "stylish-haskell";
   hlint = exeFromExtras "hlint";
   haskell-language-server = exeFromExtras "haskell-language-server";
+  haskell-language-server-wrapper = pkgs.writeShellScriptBin "haskell-language-server-wrapper" ''${haskell-language-server}/bin/haskell-language-server "$@"'';
   hie-bios = exeFromExtras "hie-bios";
   haskellNixAgda = haskell.extraPackages.Agda;
+
+  # These are needed to pull the cardano-cli and cardano-node in the nix-shell.
+  inherit (haskell.project.hsPkgs.cardano-cli.components.exes) cardano-cli;
+  inherit (haskell.project.hsPkgs.cardano-node.components.exes) cardano-node;
 
   # We want to keep control of which version of Agda we use, so we supply our own and override
   # the one from nixpkgs.
@@ -67,21 +66,50 @@ let
     in
     pkgs.agdaPackages.override { Agda = frankenAgda; pkgs = frankenPkgs; };
 
-  agdaWithStdlib = agdaPackages.agda.withPackages [ agdaPackages.standard-library ];
+  agdaWithStdlib =
+    # Need a newer version for 2.6.2 compatibility
+    let stdlib = agdaPackages.standard-library.overrideAttrs (oldAtts: rec {
+      version = "1.7";
+      src = pkgs.fetchFromGitHub {
+        repo = "agda-stdlib";
+        owner = "agda";
+        rev = "v${version}";
+        sha256 = "14h3jprm6924g9576v25axn9v6xnip354hvpzlcqsc5qqyj7zzjs";
+      };
+      # This is preConfigure is copied from more recent nixpkgs that also uses version 1.7 of standard-library
+      # Old nixpkgs (that used 1.4) had a preConfigure step that worked with 1.7
+      # Less old nixpkgs (that used 1.6) had a preConfigure step that attempts to `rm` files that are now in the
+      # .gitignore list for 1.7
+      preConfigure = ''
+        runhaskell GenerateEverything.hs
+        # We will only build/consider Everything.agda, in particular we don't want Everything*.agda
+        # do be copied to the store.
+        rm EverythingSafe.agda
+      '';
+    });
+
+    in agdaPackages.agda.withPackages [ stdlib ];
 
   #
   # dev convenience scripts
   #
   fixPurty = pkgs.callPackage ./fix-purty { inherit purty; };
   fixStylishHaskell = pkgs.callPackage ./fix-stylish-haskell { inherit stylish-haskell; };
+  fixPngOptimization = pkgs.callPackage ./fix-png-optimization { };
   updateMaterialized = pkgs.writeShellScriptBin "updateMaterialized" ''
     # This runs the 'updateMaterialize' script in all platform combinations we care about.
     # See the comment in ./haskell/haskell.nix
 
     # Update the linux files (will do for all unixes atm).
     $(nix-build default.nix -A plutus.haskell.project.plan-nix.passthru.updateMaterialized --argstr system x86_64-linux)
+    $(nix-build default.nix -A plutus.haskell.project.plan-nix.passthru.updateMaterialized --argstr system x86_64-darwin)
+    $(nix-build default.nix -A plutus.haskell.project.plan-nix.passthru.updateMaterialized --argstr system windows)
+    $(nix-build default.nix -A plutus.haskell.project.projectCross.mingwW64.plan-nix.passthru.updateMaterialized --argstr system x86_64-linux)
+
+    # This updates the sha files for the extra packages
+    $(nix-build default.nix -A plutus.haskell.extraPackages.updateAllShaFiles --argstr system x86_64-linux)
+    $(nix-build default.nix -A plutus.haskell.extraPackages.updateAllShaFiles --argstr system x86_64-darwin)
   '';
-  updateMetadataSamples = pkgs.callPackage ./update-metadata-samples { };
   updateClientDeps = pkgs.callPackage ./update-client-deps {
     inherit purs psc-package spago spago2nix;
   };
@@ -93,20 +121,13 @@ let
   sphinx-markdown-tables = pkgs.python3Packages.callPackage ./sphinx-markdown-tables { };
   sphinxemoji = pkgs.python3Packages.callPackage ./sphinxemoji { };
 
-  # `set-git-rev` is a function that can be called on a haskellPackages
-  # package to inject the git revision post-compile
-  set-git-rev = pkgs.callPackage ./set-git-rev {
-    inherit (haskell.project) ghcWithPackages;
-    inherit git-rev;
-  };
-
   # By default pre-commit-hooks.nix uses its own pinned version of nixpkgs. In order to
   # to get it to use our version we have to (somewhat awkwardly) use `nix/default.nix`
   # to which both `nixpkgs` and `system` can be passed.
-  nix-pre-commit-hooks = (pkgs.callPackage ((sources."pre-commit-hooks.nix") + "/nix/default.nix") {
+  nix-pre-commit-hooks = (pkgs.callPackage (sources.pre-commit-hooks-nix + "/nix/default.nix") {
     inherit system;
     inherit (sources) nixpkgs;
-  }).packages;
+  });
 
   # purty is unable to process several files but that is what pre-commit
   # does. pre-commit-hooks.nix does provide a wrapper for that but when
@@ -145,7 +166,8 @@ let
   # If it succeeds:
   #
   # * Merge your new `inherit (easyPS) spago2nix` with the one above.
-  # * Run `niv delete spago2nix`.
+  # * Remove spago2nix from flake.nix
+  # * Run `nix --experimental-features 'nix-command flakes' flake lock`
   #
   spago2nix = pkgs.callPackage (sources.spago2nix) { };
 
@@ -153,7 +175,7 @@ let
   sphinxcontrib-haddock = pkgs.callPackage (sources.sphinxcontrib-haddock) { pythonPackages = pkgs.python3Packages; };
 
   # ghc web service
-  web-ghc = pkgs.callPackage ./web-ghc { inherit set-git-rev haskell; };
+  web-ghc = pkgs.callPackage ./web-ghc { inherit haskell; };
 
   # combined haddock documentation for all public plutus libraries
   plutus-haddock-combined =
@@ -175,7 +197,7 @@ let
     latex = pkgs.callPackage ../lib/latex.nix { };
     filterNpm = pkgs.callPackage ../lib/filter-npm.nix { };
     npmlock2nix = pkgs.callPackage sources.npmlock2nix { };
-    buildPursPackage = pkgs.callPackage ../lib/purescript.nix { inherit easyPS;inherit (pkgs) nodejs; };
+    buildPursPackage = pkgs.callPackage ../lib/purescript.nix { inherit easyPS; inherit (pkgs) nodejs; };
     buildNodeModules = pkgs.callPackage ../lib/node_modules.nix ({
       inherit npmlock2nix;
     } // pkgs.lib.optionalAttrs (stdenv.isDarwin) {
@@ -189,10 +211,10 @@ in
 {
   inherit sphinx-markdown-tables sphinxemoji sphinxcontrib-haddock;
   inherit nix-pre-commit-hooks;
-  inherit haskell agdaPackages cabal-install stylish-haskell hlint haskell-language-server hie-bios;
+  inherit haskell agdaPackages cabal-install cardano-repo-tool stylish-haskell hlint haskell-language-server haskell-language-server-wrapper hie-bios cardano-cli cardano-node;
   inherit purty purty-pre-commit purs spago spago2nix;
-  inherit fixPurty fixStylishHaskell updateMaterialized updateMetadataSamples updateClientDeps;
-  inherit iohkNix set-git-rev web-ghc;
+  inherit fixPurty fixStylishHaskell fixPngOptimization updateMaterialized updateClientDeps;
+  inherit web-ghc;
   inherit easyPS plutus-haddock-combined;
   inherit agdaWithStdlib aws-mfa-login;
   inherit lib;

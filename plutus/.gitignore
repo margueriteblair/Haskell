@@ -65,6 +65,8 @@ pkgs/.stack
 *_flymake.*
 .psc-ide-port
 .dir-locals.el
+*.code-workspace
+.*.sw*
 
 # Frontend generated files (NPM/Yarn, Spago, generated PS, etc.)
 # N.B. officially we use NPM; ignoring Yarn files allows the local use of Yarn for those that want
@@ -82,7 +84,6 @@ pkgs/.stack
 **/.spago2nix/
 
 # Backend config files
-marlowe-dashboard-client/plutus-pab.yaml
 marlowe-playground-server/playground.yaml
 plutus-playground-server/playground.yaml
 plutus-pab/plutus-pab.yaml
@@ -105,6 +106,11 @@ gh-pages
 *.db-shm
 *.db-wal
 hie.yaml
-node-server.sock
+node-server.sock*
+node.sock
+**/node?/db
 .pre-commit-config.yaml
 secrets/*/.gpg-id
+ghcid.txt
+plutus-pab/test-node/testnet/db
+plutus-pab/test-node/alonzo-purple/db

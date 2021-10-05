@@ -19,22 +19,22 @@ import           Control.Monad.IO.Class       (MonadIO, liftIO)
 import           Control.Monad.Logger         (LoggingT, runStderrLoggingT)
 import           Control.Monad.Reader         (ReaderT, runReaderT)
 import           Data.Aeson                   (decodeFileStrict)
+import           Data.Bits                    (toIntegralSized)
 import qualified Data.ByteString.Lazy.Char8   as BSL
 import           Data.Proxy                   (Proxy (Proxy))
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
-import           Data.Time.Units              (Second)
-import           Git                          (gitRev)
+import           Data.Time.Units              (Second, toMicroseconds)
 import           Language.Haskell.Interpreter (InterpreterError (CompilationErrors), InterpreterResult, SourceCode)
 import qualified Language.Haskell.Interpreter as Interpreter
-import           Network.HTTP.Client.Conduit  (defaultManagerSettings)
+import           Network.HTTP.Client.Conduit  (defaultManagerSettings, managerResponseTimeout, responseTimeoutMicro)
 import           Network.HTTP.Conduit         (newManager)
 import           Network.Wai.Middleware.Cors  (cors, simpleCorsResourcePolicy)
 import qualified Playground.Interpreter       as PI
 import           Playground.Types             (CompilationResult, Evaluation, EvaluationResult, PlaygroundError)
 import           Playground.Usecases          (vesting)
 import           Servant                      (Application, err400, errBody, hoistServer, serve)
-import           Servant.API                  (Get, JSON, PlainText, Post, ReqBody, (:<|>) ((:<|>)), (:>))
+import           Servant.API                  (Get, JSON, Post, ReqBody, (:<|>) ((:<|>)), (:>))
 import           Servant.Client               (ClientEnv, mkClientEnv, parseBaseUrl)
 import           Servant.Server               (Handler (Handler), Server, ServerError)
 import           System.Environment           (lookupEnv)
@@ -42,17 +42,10 @@ import qualified Web.JWT                      as JWT
 
 type API
      = "contract" :> ReqBody '[ JSON] SourceCode :> Post '[ JSON] (Either Interpreter.InterpreterError (InterpreterResult CompilationResult))
-       :<|> "version" :> Get '[PlainText, JSON] Text
        :<|> "evaluate" :> ReqBody '[ JSON] Evaluation :> Post '[ JSON] (Either PlaygroundError EvaluationResult)
        :<|> "health" :> Get '[ JSON] ()
 
 type Web = "api" :> (API :<|> Auth.API)
-
-version :: Applicative m => m Text
-version = pure gitRev
-
-maxInterpretationTime :: Second
-maxInterpretationTime = 80
 
 compileSourceCode ::
        ClientEnv
@@ -94,7 +87,7 @@ mkHandlers :: MonadIO m => AppConfig -> m (Server Web)
 mkHandlers AppConfig {..} = do
     liftIO $ putStrLn "Interpreter ready"
     githubEndpoints <- liftIO Auth.mkGithubEndpoints
-    pure $ (compileSourceCode clientEnv :<|> version :<|> evaluateSimulation clientEnv :<|> checkHealth clientEnv) :<|> liftedAuthServer githubEndpoints authConfig
+    pure $ (compileSourceCode clientEnv :<|> evaluateSimulation clientEnv :<|> checkHealth clientEnv) :<|> liftedAuthServer githubEndpoints authConfig
 
 app :: Server Web -> Application
 app handlers =
@@ -105,8 +98,8 @@ app handlers =
 
 data AppConfig = AppConfig { authConfig :: Auth.Config, clientEnv :: ClientEnv }
 
-initializeServerContext :: MonadIO m => Maybe FilePath -> m AppConfig
-initializeServerContext secrets = liftIO $ do
+initializeServerContext :: MonadIO m => Second -> Maybe FilePath -> m AppConfig
+initializeServerContext maxInterpretationTime secrets = liftIO $ do
   putStrLn "Initializing Context"
   authConfig <- mkAuthConfig secrets
   mWebghcURL <- lookupEnv "WEBGHC_URL"
@@ -116,7 +109,12 @@ initializeServerContext secrets = liftIO $ do
       let localhost = "http://localhost:8009"
       putStrLn $ "WEBGHC_URL not set, using " <> localhost
       parseBaseUrl localhost
-  manager <- newManager defaultManagerSettings
+  manager <- newManager $ defaultManagerSettings
+    { managerResponseTimeout = maybe
+      (managerResponseTimeout defaultManagerSettings)
+      responseTimeoutMicro . toIntegralSized
+      $ toMicroseconds maxInterpretationTime
+    }
   let clientEnv = mkClientEnv manager webghcURL
   pure $ AppConfig authConfig clientEnv
 

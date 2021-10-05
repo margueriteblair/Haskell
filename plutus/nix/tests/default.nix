@@ -1,29 +1,24 @@
 { pkgs
-, iohkNix
+, gitignore-nix
 , fixStylishHaskell
 , fixPurty
+, fixPngOptimization
 , src
-, terraform
 , plutus-playground
 , marlowe-playground
 , marlowe-dashboard
 , web-ghc
 , plutus-pab
-, marlowe-app
+, marlowe-pab
+, docs
 , vmCompileTests ? false
 }:
 let
   inherit (pkgs) lib;
-  cleanSrc = lib.cleanSourceWith {
-    filter = lib.cleanSourceFilter;
-    inherit src;
-    # Otherwise this depends on the name in the parent directory, which reduces caching, and is
-    # particularly bad on Hercules, see https://github.com/hercules-ci/support/issues/40
-    name = "plutus";
-  };
+  cleanSrc = gitignore-nix.gitignoreSource src;
 in
 pkgs.recurseIntoAttrs {
-  shellcheck = pkgs.callPackage iohkNix.tests.shellcheck { src = cleanSrc; };
+  shellcheck = pkgs.callPackage ./shellcheck.nix { src = cleanSrc; };
 
   stylishHaskell = pkgs.callPackage ./stylish-haskell.nix {
     src = cleanSrc;
@@ -40,10 +35,13 @@ pkgs.recurseIntoAttrs {
     inherit (pkgs) nixpkgs-fmt;
   };
 
-  terraform = pkgs.callPackage ./terraform.nix {
+  pngOptimization = pkgs.callPackage ./png-optimization.nix {
     src = cleanSrc;
-    inherit (pkgs) terraform;
+    inherit fixPngOptimization;
   };
 
-  vmTests = pkgs.callPackage ./vm.nix { inherit vmCompileTests plutus-playground marlowe-playground marlowe-dashboard web-ghc plutus-pab marlowe-app; };
+  vmTests = pkgs.callPackage ./vm.nix {
+    inherit vmCompileTests plutus-playground marlowe-playground
+      marlowe-dashboard web-ghc plutus-pab marlowe-pab docs;
+  };
 }

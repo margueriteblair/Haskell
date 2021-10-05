@@ -10,7 +10,6 @@ import           Test.Tasty.QuickCheck
 main :: IO ()
 main = defaultMain tests
 
-
 tests :: TestTree
 tests = testGroup "Marlowe"
     [ testGroup "Contracts" [ Spec.Marlowe.Marlowe.tests

@@ -12,9 +12,11 @@ module Wallet.Rollup.Types where
 import           Control.Lens              (makeLenses, makeLensesFor)
 import           Data.Aeson                (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import           Data.Map                  (Map)
+import qualified Data.OpenApi.Schema       as OpenApi
 import           Data.Text.Prettyprint.Doc (Pretty, pretty, viaShow)
 import           GHC.Generics
 import           Ledger
+import           Ledger.Credential         (Credential (..))
 
 data TxKey =
     TxKey
@@ -22,7 +24,7 @@ data TxKey =
         , _txKeyTxOutRefIdx :: Integer
         }
     deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 instance Pretty TxKey where
     pretty = viaShow
@@ -33,7 +35,7 @@ data SequenceId =
         , txIndex   :: Int
         }
     deriving (Eq, Ord, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 makeLensesFor
      [ ("slotIndex", "slotIndexL")
@@ -48,7 +50,7 @@ data DereferencedInput
           }
     | InputNotFound TxKey
     deriving (Eq, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 isFound :: DereferencedInput -> Bool
 isFound DereferencedInput {} = True
@@ -58,13 +60,13 @@ data BeneficialOwner
     = OwnedByPubKey PubKeyHash
     | OwnedByScript ValidatorHash
     deriving (Eq, Show, Ord, Generic)
-    deriving anyclass (FromJSON, ToJSON, FromJSONKey, ToJSONKey)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema, FromJSONKey, ToJSONKey)
 
 toBeneficialOwner :: TxOut -> BeneficialOwner
-toBeneficialOwner TxOut {txOutAddress} =
-    case txOutAddress of
-        PubKeyAddress pkh -> OwnedByPubKey pkh
-        ScriptAddress vh  -> OwnedByScript vh
+toBeneficialOwner TxOut {txOutAddress=Address{addressCredential}} =
+    case addressCredential of
+        PubKeyCredential pkh -> OwnedByPubKey pkh
+        ScriptCredential vh  -> OwnedByScript vh
 
 data AnnotatedTx =
     AnnotatedTx
@@ -73,9 +75,10 @@ data AnnotatedTx =
         , tx                 :: Tx
         , dereferencedInputs :: [DereferencedInput]
         , balances           :: Map BeneficialOwner Value
+        , valid              :: Bool
         }
     deriving (Eq, Show, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 makeLenses 'AnnotatedTx
 

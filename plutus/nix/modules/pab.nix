@@ -2,7 +2,7 @@
 let
   inherit (lib) types mkOption mkIf;
   pabExec = pkgs.writeShellScriptBin "pab-exec" ''
-    ${cfg.pab-package}/bin/plutus-pab --config=${pabYaml} $*
+    ${cfg.pab-executable} --config=${pabYaml} $*
   '';
   cfg = config.services.pab;
 
@@ -15,6 +15,7 @@ let
     pabWebserverConfig = {
       baseUrl = "http://localhost:${builtins.toString cfg.webserverPort}";
       staticDir = "${cfg.staticContent}";
+      permissiveCorsPolicy = false;
     };
 
     walletServerConfig = {
@@ -27,17 +28,24 @@ let
     nodeServerConfig = {
       mscBaseUrl = "http://localhost:${builtins.toString cfg.nodePort}";
       mscSocketPath = "/tmp/node-server.sock";
-      mscSlotLength = 5;
-      mscRandomTxInterval = 20000000;
-      mscBlockReaper = {
-        brcInterval = 6000000;
-        brcBlocksToKeep = 100000;
+      mscSlotConfig = {
+        scSlotZeroTime = cfg.slotZeroTime;
+        scSlotLength = cfg.slotLength;
       };
+      mscFeeConfig = {
+        fcConstantFee = {
+          getLovelace = cfg.constantFee;
+        };
+        fcScriptsFeeFactor = cfg.scriptsFeeFactor;
+      };
+      mscNetworkId = ""; # Empty string for Mainnet. Put a network magic number in the string to use the Testnet.
+      mscKeptBlocks = 100000;
       mscInitialTxWallets = [
         { getWallet = 1; }
         { getWallet = 2; }
         { getWallet = 3; }
       ];
+      mscNodeMode = "MockNode";
     };
 
     chainIndexConfig = {
@@ -56,9 +64,6 @@ let
       };
     };
 
-    metadataServerConfig = {
-      mdBaseUrl = "http://localhost:${builtins.toString cfg.metadataPort}";
-    };
   };
 
   pabYaml = pkgs.writeText "pab.yaml" (builtins.toJSON pabConfig);
@@ -75,10 +80,17 @@ in
       '';
     };
 
-    pab-package = mkOption {
+    pab-setup = mkOption {
       type = types.package;
       description = ''
-        The pab package to execute.
+        The pab setup script to execute.
+      '';
+    };
+
+    pab-executable = mkOption {
+      type = types.path;
+      description = ''
+        The pab executable to run.
       '';
     };
 
@@ -101,7 +113,7 @@ in
       type = types.int;
       default = 1;
       description = ''
-        The default wallet to opreate on.
+        The default wallet to operate on.
       '';
     };
 
@@ -145,19 +157,35 @@ in
       '';
     };
 
-    metadataPort = mkOption {
-      type = types.port;
-      default = 8085;
+    slotZeroTime = mkOption {
+      type = types.int;
+      default = 1596059091000; # POSIX time of 2020-07-29T21:44:51Z (Wednesday, July 29, 2020 21:44:51) - Shelley launch time
       description = ''
-        Port of the pab 'metadata' component.
+        POSIX time of slot 0 in milliseconds. Setting this (together with the slot length) enables pure datetime-to-slot mappings.
       '';
     };
 
-    contracts = mkOption {
-      type = types.listOf (types.path);
-      default = [ ];
+    slotLength = mkOption {
+      type = types.int;
+      default = 1000;
       description = ''
-        List of paths to contracts that should be installed.
+        Length of a slot (in milliseconds).
+      '';
+    };
+
+    constantFee = mkOption {
+      type = types.int;
+      default = 10;
+      description = ''
+        Constant fee per transaction in lovelace.
+      '';
+    };
+
+    scriptsFeeFactor = mkOption {
+      type = types.float;
+      default = 1.0;
+      description = ''
+        Factor by which to multiply the size-dependent scripts fee in lovelace.
       '';
     };
 
@@ -167,16 +195,32 @@ in
 
     environment.systemPackages = [ pabExec ];
 
-    systemd.services.pab-init = {
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        Restart = "no";
-        DynamicUser = true;
-        StateDirectory = [ "pab" ];
-        ExecStart = "${cfg.pab-package}/bin/plutus-pab --config=${pabYaml} migrate";
+    systemd.services.pab-init =
+      let
+        # Note: The db is dropped as a workaround for a problem with
+        # eventful which crashes PAB. Currently data persistence is not
+        # relevant, but the problem *will* occur again when the DB removal
+        # is removed unless the underlying problem is identified/fixed.
+        pab-init-cmd = pkgs.writeShellScript "pab-init-cmd" ''
+          set -eEuo pipefail
+
+          echo "[pab-init-cmd]: Dropping PAB database file '${cfg.dbFile}'"
+          rm -rf ${cfg.dbFile}
+
+          echo "[pab-init-cmd]: Creating new DB '${cfg.dbFile}'"
+          ${cfg.pab-executable} --config=${pabYaml} migrate;
+        '';
+      in
+      {
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          Restart = "no";
+          DynamicUser = true;
+          StateDirectory = [ "pab" ];
+          ExecStart = pab-init-cmd;
+        };
       };
-    };
 
     systemd.services.pab = {
       wantedBy = [ "multi-user.target" ];
@@ -188,7 +232,7 @@ in
         Restart = "always";
         DynamicUser = true;
         StateDirectory = [ "pab" ];
-        ExecStart = "${cfg.pab-package}/bin/plutus-pab --config=${pabYaml} all-servers";
+        ExecStart = "${cfg.pab-executable} --config=${pabYaml} all-servers";
 
         # Sane defaults for security
         ProtectKernelTunables = true;
@@ -199,11 +243,6 @@ in
       };
       postStart = ''
         mkdir -p /var/lib/pab
-
-        #
-        # After pab has started we can install all contracts that have been configured via `plutus-pab contracts install <contract path>`
-        #
-        ${lib.concatMapStringsSep "\n" (p: "${cfg.pab-package}/bin/plutus-pab --config=${pabYaml} contracts install --path ${p}") cfg.contracts}
       '';
     };
   };

@@ -27,17 +27,21 @@ module Plutus.Trace.Emulator(
     , RunContract.walletInstanceTag
     , RunContract.callEndpoint
     , RunContract.getContractState
+    , RunContract.observableState
     , RunContract.activeEndpoints
     , EmulatedWalletAPI.liftWallet
     , EmulatedWalletAPI.payToWallet
     , Waiting.nextSlot
     , Waiting.waitUntilSlot
+    , Waiting.waitUntilTime
     , Waiting.waitNSlots
+    , Waiting.waitNMilliSeconds
     , EmulatorControl.freezeContractInstance
     , EmulatorControl.thawContractInstance
     -- ** Inspecting the chain state
     , EmulatorControl.setSigningProcess
     , EmulatorControl.chainState
+    , EmulatorControl.getSlotConfig
     , ChainState.chainNewestFirst
     , ChainState.txPool
     , ChainState.index
@@ -46,11 +50,15 @@ module Plutus.Trace.Emulator(
     , EmulatorControl.agentState
     , Wallet.ownPrivateKey
     , Wallet.nodeClient
-    , Wallet.chainIndex
     , Wallet.signingProcess
+    -- * Throwing errors
+    , throwError
+    , EmulatorRuntimeError(..)
     -- * Running traces
     , EmulatorConfig(..)
     , initialChainState
+    , slotConfig
+    , feeConfig
     , runEmulatorStream
     , TraceConfig(..)
     , runEmulatorTrace
@@ -67,28 +75,28 @@ import           Control.Lens                            hiding ((:>))
 import           Control.Monad                           (forM_, void)
 import           Control.Monad.Freer
 import           Control.Monad.Freer.Coroutine           (Yield)
-import           Control.Monad.Freer.Error               (Error)
+import           Control.Monad.Freer.Error               (Error, handleError, throwError)
 import           Control.Monad.Freer.Extras.Log          (LogMessage (..), LogMsg (..), mapLog)
 import           Control.Monad.Freer.Extras.Modify       (raiseEnd)
 import           Control.Monad.Freer.Reader              (Reader, runReader)
 import           Control.Monad.Freer.State               (State, evalState)
 import           Control.Monad.Freer.TH                  (makeEffect)
 import           Data.Default                            (Default (..))
-import           Data.List                               (foldl')
 import qualified Data.Map                                as Map
 import           Data.Maybe                              (fromMaybe)
 import           Data.Text.Prettyprint.Doc               (defaultLayoutOptions, layoutPretty, pretty)
 import           Data.Text.Prettyprint.Doc.Render.String (renderString)
 import           Plutus.Trace.Scheduler                  (EmSystemCall, ThreadId, exit, runThreads)
 import           System.IO                               (Handle, hPutStrLn, stdout)
-import           Wallet.Emulator.Chain                   (ChainControlEffect, ChainEffect, ChainState (..))
+import           Wallet.Emulator.Chain                   (ChainControlEffect)
 import qualified Wallet.Emulator.Chain                   as ChainState
 import           Wallet.Emulator.MultiAgent              (EmulatorEvent, EmulatorEvent' (..), EmulatorState (..),
                                                           MultiAgentControlEffect, MultiAgentEffect, _eteEmulatorTime,
                                                           _eteEvent, schedulerEvent)
-import           Wallet.Emulator.Stream                  (EmulatorConfig (..), EmulatorErr (..), foldEmulatorStreamM,
-                                                          initialChainState, initialDist, runTraceStream)
-import           Wallet.Emulator.Wallet                  (Wallet, _ownPrivateKey, getWallet)
+import           Wallet.Emulator.Stream                  (EmulatorConfig (..), EmulatorErr (..), feeConfig,
+                                                          foldEmulatorStreamM, initialChainState, initialDist,
+                                                          runTraceStream, slotConfig)
+import           Wallet.Emulator.Wallet                  (Entity, balances)
 import qualified Wallet.Emulator.Wallet                  as Wallet
 
 import           Plutus.Trace.Effects.ContractInstanceId (ContractInstanceIdEff, handleDeterministicIds)
@@ -100,22 +108,18 @@ import           Plutus.Trace.Effects.RunContract        (RunContract, handleRun
 import qualified Plutus.Trace.Effects.RunContract        as RunContract
 import           Plutus.Trace.Effects.Waiting            (Waiting, handleWaiting)
 import qualified Plutus.Trace.Effects.Waiting            as Waiting
-import           Plutus.Trace.Emulator.ContractInstance  (EmulatorRuntimeError)
 import           Plutus.Trace.Emulator.System            (launchSystemThreads)
 import           Plutus.Trace.Emulator.Types             (ContractConstraints, ContractHandle (..),
                                                           ContractInstanceLog (..), ContractInstanceMsg (..),
                                                           ContractInstanceTag, Emulator, EmulatorMessage (..),
-                                                          EmulatorThreads, UserThreadMsg (..))
+                                                          EmulatorRuntimeError (..), EmulatorThreads,
+                                                          UserThreadMsg (..))
 import           Streaming                               (Stream)
 import           Streaming.Prelude                       (Of (..))
 
 import qualified Data.Aeson                              as A
-import           Ledger.Index                            (UtxoIndex (..))
-import           Plutus.V1.Ledger.Address                (Address (..))
-import           Plutus.V1.Ledger.Crypto                 (PubKeyHash, pubKeyHash, toPublicKey)
-import           Plutus.V1.Ledger.Scripts                (ValidatorHash)
+import           Ledger.TimeSlot                         (SlotConfig)
 import           Plutus.V1.Ledger.Slot                   (getSlot)
-import           Plutus.V1.Ledger.Tx                     (TxOut (..))
 import           Plutus.V1.Ledger.Value                  (Value (..), flattenValue)
 
 -- | A very simple effect for interpreting the output printing done by the
@@ -135,6 +139,7 @@ type EmulatorTrace a =
             , EmulatorControl
             , EmulatedWalletAPI
             , LogMsg String
+            , Error EmulatorRuntimeError
             ] a
 
 handleEmulatorTrace ::
@@ -147,12 +152,15 @@ handleEmulatorTrace ::
     , Member (LogMsg EmulatorEvent') effs
     , Member ContractInstanceIdEff effs
     )
-    => EmulatorTrace a
+    => SlotConfig
+    -> EmulatorTrace a
     -> Eff (Reader ThreadId ': Yield (EmSystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) ()
-handleEmulatorTrace action = do
-    _ <- interpret (mapLog (UserThreadEvent . UserLog))
-            . interpret handleEmulatedWalletAPI
-            . interpret (handleEmulatorControl @_ @effs)
+handleEmulatorTrace slotCfg action = do
+    _ <- subsume @(Error EmulatorRuntimeError)
+            . interpret (mapLog (UserThreadEvent . UserLog))
+            . flip handleError (throwError . EmulatedWalletError)
+            . reinterpret handleEmulatedWalletAPI
+            . interpret (handleEmulatorControl @_ @effs slotCfg)
             . interpret (handleWaiting @_ @effs)
             . interpret (handleRunContract @_ @effs)
             $ raiseEnd action
@@ -171,7 +179,6 @@ interpretEmulatorTrace :: forall effs a.
     ( Member MultiAgentEffect effs
     , Member MultiAgentControlEffect effs
     , Member (Error EmulatorRuntimeError) effs
-    , Member ChainEffect effs
     , Member ChainControlEffect effs
     , Member (LogMsg EmulatorEvent') effs
     , Member (State EmulatorState) effs
@@ -184,8 +191,7 @@ interpretEmulatorTrace conf action =
     -- initial transaction gets validated before the wallets
     -- try to spend their funds
     let action' = Waiting.nextSlot >> action >> Waiting.nextSlot
-        defaultWallets = Wallet.Wallet <$> [1..10]
-        wallets = fromMaybe defaultWallets (preview (initialChainState . _Left . to Map.keys) conf)
+        wallets = fromMaybe Wallet.knownWallets (preview (initialChainState . _Left . to Map.keys) conf)
     in
     evalState @EmulatorThreads mempty
         $ handleDeterministicIds
@@ -193,7 +199,7 @@ interpretEmulatorTrace conf action =
         $ runThreads
         $ do
             raise $ launchSystemThreads wallets
-            handleEmulatorTrace action'
+            handleEmulatorTrace (_slotConfig conf) action'
 
 -- | Options for how to set up and print the trace.
 data TraceConfig = TraceConfig
@@ -218,7 +224,6 @@ defaultShowEvent = \case
   InstanceEvent (ContractInstanceLog (HandledRequest _)           _ _) -> Nothing
   InstanceEvent (ContractInstanceLog (CurrentRequests _)          _ _) -> Nothing
   SchedulerEvent _                                                     -> Nothing
-  ChainIndexEvent _ _                                                  -> Nothing
   WalletEvent _ _                                                      -> Nothing
   ev                                                                   -> Just . renderString . layoutPretty defaultLayoutOptions . pretty $ ev
 
@@ -235,7 +240,6 @@ runEmulatorTrace cfg trace =
     $ foldEmulatorStreamM (generalize list)
     $ runEmulatorStream cfg trace
 
-
 -- | Run the emulator trace returning an effect that can be evaluated by
 -- interpreting the 'PrintEffect's.
 runEmulatorTraceEff :: forall effs. Member PrintEffect effs
@@ -245,20 +249,21 @@ runEmulatorTraceEff :: forall effs. Member PrintEffect effs
     -> Eff effs ()
 runEmulatorTraceEff tcfg cfg trace =
   let (xs, me, e) = runEmulatorTrace cfg trace
+      balances' = balances (_chainState e) (_walletStates e)
    in do
       case me of
         Nothing  -> return ()
         Just err -> printLn $ "ERROR: " <> show err
 
       forM_ xs $ \ete -> do
-        case (showEvent tcfg) (_eteEvent ete) of
+        case showEvent tcfg (_eteEvent ete) of
           Nothing -> return ()
           Just s  ->
             let slot = pad 5 (getSlot $ _eteEmulatorTime ete)
              in printLn $ "Slot " <> slot <> ": " <> s
 
-      printLn $ "Final balances"
-      printBalances (balances e)
+      printLn "Final balances"
+      printBalances balances'
 
 -- | Runs the trace with 'runEmulatorTrace', with default configuration that
 -- prints a selection of events to stdout.
@@ -293,44 +298,14 @@ runPrintEffect hdl = runM . interpretM f
     f = \case
       PrintLn s -> hPutStrLn hdl s
 
-
 pad :: Int -> Integer -> String
 pad n = (\x -> replicate (n - length x) '0' ++ x) . show
-
-walletPubKeyHashes :: EmulatorState -> Map.Map PubKeyHash Wallet
-walletPubKeyHashes = foldl' f Map.empty . Map.toList . _walletStates
-  where
-    f m (w, ws) = Map.insert (pubKeyHash $ toPublicKey $ _ownPrivateKey ws) w m
-
-data Entity = EWallet Wallet
-            | EPubKeyHash PubKeyHash
-            | EScript ValidatorHash
-  deriving (Show, Eq, Ord)
-
-balances :: EmulatorState -> Map.Map Entity Value
-balances e = foldl' f Map.empty . getIndex . _index . _chainState $ e
-  where
-    toEntity :: Address -> Entity
-    toEntity (PubKeyAddress h) = case Map.lookup h ws of
-        Nothing -> EPubKeyHash h
-        Just w  -> EWallet w
-    toEntity (ScriptAddress h) = EScript h
-
-    ws :: Map.Map PubKeyHash Wallet
-    ws = walletPubKeyHashes e
-
-    f m o = Map.insertWith (<>) (toEntity $ txOutAddress o) (txOutValue o) m
 
 printBalances :: forall effs. Member PrintEffect effs
               => Map.Map Entity Value
               -> Eff effs ()
 printBalances m = do
     forM_ (Map.toList m) $ \(e, v) -> do
-        printLn $ showEntity e <> ": "
+        printLn $ show e <> ": "
         forM_ (flattenValue v) $ \(cs, tn, a) ->
             printLn $ "    {" <> show cs <> ", " <> show tn <> "}: " <> show a
-  where
-    showEntity :: Entity -> String
-    showEntity (EWallet w)     = "Wallet " <> show (getWallet w)
-    showEntity (EScript h)     = "Script " <> show h
-    showEntity (EPubKeyHash h) = "PubKeyHash " <> show h

@@ -12,6 +12,8 @@ module PlutusCore.Pretty
     -- * Defaults
     , prettyPlcDef
     , displayPlcDef
+    , prettyPlcDebug
+    , displayPlcDebug
     -- * Global configuration
     , CondensedErrors (..)
     , PrettyConfigPlcOptions (..)
@@ -39,6 +41,7 @@ module PlutusCore.Pretty
     , PrettyConfigClassic (..)
     , PrettyClassicBy
     , PrettyClassic
+    , consAnnIf
     , prettyClassicDef
     , prettyClassicDebug
     -- * Readable view
@@ -50,7 +53,9 @@ module PlutusCore.Pretty
     , botPrettyConfigReadable
     -- * Utils
     , prettyBytes
-    , PrettyConst (..)
+    , ConstConfig (..)
+    , PrettyConst
+    , prettyConst
     ) where
 
 import           PlutusCore.Pretty.Classic

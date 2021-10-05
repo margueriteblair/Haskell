@@ -6,9 +6,7 @@
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures         #-}
 {-# LANGUAGE LambdaCase             #-}
-{-# LANGUAGE MonoLocalBinds         #-}
 {-# LANGUAGE NamedFieldPuns         #-}
 {-# LANGUAGE NumericUnderscores     #-}
 {-# LANGUAGE OverloadedStrings      #-}
@@ -25,13 +23,18 @@ module Plutus.Contract.Trace
     , EndpointError(..)
     , AsTraceError(..)
     , toNotifyError
-    -- * Running 'ContractTrace' actions
-    -- * Constructing 'ContractTrace' actions
-    , handleUtxoQueries
-    , handleNextTxAtQueries
-    -- * Handle blockchain events repeatedly
+    -- * Handle contract requests
     , handleBlockchainQueries
     , handleSlotNotifications
+    , handleTimeNotifications
+    , handleOwnPubKeyQueries
+    , handleCurrentSlotQueries
+    , handleCurrentTimeQueries
+    , handleTimeToSlotConversions
+    , handleUnbalancedTransactions
+    , handlePendingTransactions
+    , handleChainIndexQueries
+    , handleOwnInstanceIdQueries
     -- * Initial distributions of emulated chains
     , InitialDistribution
     , defaultDist
@@ -39,56 +42,37 @@ module Plutus.Contract.Trace
     -- * Wallets
     , EM.Wallet(..)
     , EM.walletPubKey
-    , EM.walletPrivKey
-    , allWallets
-    , makeTimed
+    , EM.knownWallets
+    , EM.knownWallet
     ) where
 
-import           Control.Arrow                            ((>>>), (>>^))
-import           Control.Lens                             (from, makeClassyPrisms, review, view)
+import           Control.Lens                         (makeClassyPrisms, preview)
 import           Control.Monad.Freer
-import           Control.Monad.Freer.Extras.Log           (LogMessage, LogMsg, LogObserve)
-import           Control.Monad.Freer.Reader               (Reader)
-import           Control.Monad.Freer.State                (State, gets)
-import qualified Data.Aeson.Types                         as JSON
-import           Data.Map                                 (Map)
-import qualified Data.Map                                 as Map
-import           Data.Text.Prettyprint.Doc                (Pretty, pretty, (<+>))
-import           GHC.Generics                             (Generic)
+import           Control.Monad.Freer.Extras.Log       (LogMessage, LogMsg, LogObserve)
+import           Control.Monad.Freer.Reader           (Reader)
+import qualified Data.Aeson.Types                     as JSON
+import           Data.Map                             (Map)
+import qualified Data.Map                             as Map
+import           Data.Text.Prettyprint.Doc            (Pretty, pretty, (<+>))
+import           GHC.Generics                         (Generic)
 
-import           Data.Text                                (Text)
-import           Plutus.Contract                          (HasAwaitSlot, HasTxConfirmation, HasUtxoAt, HasWatchAddress,
-                                                           HasWriteTx)
-import           Plutus.Contract.Schema                   (Event (..), Handlers (..))
+import           Data.Text                            (Text)
 
-import qualified Plutus.Contract.Effects.AwaitSlot        as AwaitSlot
-import           Plutus.Contract.Effects.AwaitTxConfirmed (TxConfirmed (..))
-import qualified Plutus.Contract.Effects.AwaitTxConfirmed as AwaitTxConfirmed
-import           Plutus.Contract.Effects.Instance         (HasOwnId)
-import qualified Plutus.Contract.Effects.Instance         as OwnInstance
-import           Plutus.Contract.Effects.Notify           (HasContractNotify)
-import qualified Plutus.Contract.Effects.Notify           as Notify
-import           Plutus.Contract.Effects.OwnPubKey        (HasOwnPubKey)
-import qualified Plutus.Contract.Effects.OwnPubKey        as OwnPubKey
-import qualified Plutus.Contract.Effects.UtxoAt           as UtxoAt
-import qualified Plutus.Contract.Effects.WatchAddress     as WatchAddress
-import qualified Plutus.Contract.Effects.WriteTx          as WriteTx
-import           Plutus.Contract.Trace.RequestHandler     (RequestHandler (..), RequestHandlerLogMsg, maybeToHandler)
-import qualified Plutus.Contract.Trace.RequestHandler     as RequestHandler
+import           Plutus.Contract.Effects              (PABReq, PABResp)
+import qualified Plutus.Contract.Effects              as E
+import           Plutus.Contract.Trace.RequestHandler (RequestHandler (..), RequestHandlerLogMsg, generalise)
+import qualified Plutus.Contract.Trace.RequestHandler as RequestHandler
 
-import qualified Ledger.Ada                               as Ada
-import           Ledger.Value                             (Value)
+import qualified Ledger.Ada                           as Ada
+import           Ledger.Value                         (Value)
 
-import           Plutus.Trace.Emulator.Types              (EmulatedWalletEffects)
-import           Wallet.API                               (ChainIndexEffect)
-import           Wallet.Effects                           (ContractRuntimeEffect, WalletEffect)
-import           Wallet.Emulator                          (EmulatorState, Wallet)
-import qualified Wallet.Emulator                          as EM
-import           Wallet.Emulator.LogMessages              (TxBalanceMsg)
-import qualified Wallet.Emulator.MultiAgent               as EM
-import           Wallet.Emulator.Notify                   (EmulatorNotifyLogMsg (..))
-import           Wallet.Types                             (ContractInstanceId, EndpointDescription (..),
-                                                           NotificationError (..))
+import           Plutus.ChainIndex                    (ChainIndexQueryEffect)
+import           Plutus.Trace.Emulator.Types          (EmulatedWalletEffects)
+import           Wallet.Effects                       (NodeClientEffect, WalletEffect)
+import           Wallet.Emulator                      (Wallet)
+import qualified Wallet.Emulator                      as EM
+import           Wallet.Types                         (ContractInstanceId, EndpointDescription (..),
+                                                       NotificationError (..))
 
 data EndpointError =
     EndpointNotActive (Maybe Wallet) EndpointDescription
@@ -114,139 +98,118 @@ data TraceError e =
 
 type InitialDistribution = Map Wallet Value
 
-makeTimed :: Member (State EmulatorState) effs => EmulatorNotifyLogMsg -> Eff effs EM.EmulatorEvent
-makeTimed e = do
-    emulatorTime <- gets (view (EM.chainState . EM.currentSlot))
-    pure $ review (EM.emulatorTimeEvent emulatorTime) (EM.NotificationEvent e)
-
 handleSlotNotifications ::
-    ( HasAwaitSlot s
-    , Member (LogObserve (LogMessage Text)) effs
+    ( Member (LogObserve (LogMessage Text)) effs
     , Member (LogMsg RequestHandlerLogMsg) effs
-    , Member WalletEffect effs
+    , Member NodeClientEffect effs
     )
-    => RequestHandler effs (Handlers s) (Event s)
+    => RequestHandler effs PABReq PABResp
 handleSlotNotifications =
-    maybeToHandler AwaitSlot.request
-    >>> RequestHandler.handleSlotNotifications
-    >>^ AwaitSlot.event
+    generalise (preview E._AwaitSlotReq) E.AwaitSlotResp RequestHandler.handleSlotNotifications
+
+handleTimeNotifications ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member (LogMsg RequestHandlerLogMsg) effs
+    , Member NodeClientEffect effs
+    )
+    => RequestHandler effs PABReq PABResp
+handleTimeNotifications =
+    generalise (preview E._AwaitTimeReq) E.AwaitTimeResp RequestHandler.handleTimeNotifications
+
+handleCurrentSlotQueries ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member NodeClientEffect effs
+    )
+    => RequestHandler effs PABReq PABResp
+handleCurrentSlotQueries =
+    generalise (preview E._CurrentSlotReq) E.CurrentSlotResp RequestHandler.handleCurrentSlot
+
+handleCurrentTimeQueries ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member NodeClientEffect effs
+    )
+    => RequestHandler effs PABReq PABResp
+handleCurrentTimeQueries =
+    generalise (preview E._CurrentTimeReq) E.CurrentTimeResp RequestHandler.handleCurrentTime
+
+handleTimeToSlotConversions ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member NodeClientEffect effs
+    )
+    => RequestHandler effs PABReq PABResp
+handleTimeToSlotConversions =
+    generalise (preview E._PosixTimeRangeToContainedSlotRangeReq) (E.PosixTimeRangeToContainedSlotRangeResp . Right) RequestHandler.handleTimeToSlotConversions
 
 handleBlockchainQueries ::
-    ( HasWriteTx s
-    , HasUtxoAt s
-    , HasTxConfirmation s
-    , HasOwnPubKey s
-    , HasWatchAddress s
-    , HasOwnId s
-    , HasContractNotify s
-    , HasAwaitSlot s
-    )
-    => RequestHandler (Reader ContractInstanceId ': ContractRuntimeEffect ': EmulatedWalletEffects) (Handlers s) (Event s)
+    RequestHandler
+        (Reader ContractInstanceId ': EmulatedWalletEffects)
+        PABReq
+        PABResp
 handleBlockchainQueries =
-    handlePendingTransactions
-    <> handleUtxoQueries
-    <> handleTxConfirmedQueries
+    handleUnbalancedTransactions
+    <> handlePendingTransactions
+    <> handleChainIndexQueries
     <> handleOwnPubKeyQueries
-    <> handleNextTxAtQueries
     <> handleOwnInstanceIdQueries
-    <> handleContractNotifications
     <> handleSlotNotifications
+    <> handleCurrentSlotQueries
+    <> handleTimeNotifications
+    <> handleCurrentTimeQueries
+    <> handleTimeToSlotConversions
 
--- | Submit the wallet's pending transactions to the blockchain
---   and inform all wallets about new transactions and respond to
---   UTXO queries
+handleUnbalancedTransactions ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member (LogMsg RequestHandlerLogMsg) effs
+    , Member WalletEffect effs
+    )
+    => RequestHandler effs PABReq PABResp
+handleUnbalancedTransactions =
+    generalise
+        (preview E._BalanceTxReq)
+        (E.BalanceTxResp . either E.BalanceTxFailed E.BalanceTxSuccess)
+        RequestHandler.handleUnbalancedTransactions
+
+-- | Submit the wallet's pending transactions to the blockchain.
 handlePendingTransactions ::
-    ( HasWriteTx s
-    , Member (LogObserve (LogMessage Text)) effs
+    ( Member (LogObserve (LogMessage Text)) effs
     , Member (LogMsg RequestHandlerLogMsg) effs
     , Member WalletEffect effs
-    , Member ChainIndexEffect effs
-    , Member (LogMsg TxBalanceMsg) effs
     )
-    => RequestHandler effs (Handlers s) (Event s)
+    => RequestHandler effs PABReq PABResp
 handlePendingTransactions =
-    maybeToHandler WriteTx.pendingTransaction
-    >>> RequestHandler.handlePendingTransactions
-    >>^ WriteTx.event . view (from WriteTx.writeTxResponse)
+    generalise
+        (preview E._WriteBalancedTxReq)
+        (E.WriteBalancedTxResp . either E.WriteBalancedTxFailed E.WriteBalancedTxSuccess)
+        RequestHandler.handlePendingTransactions
 
--- | Look at the "utxo-at" requests of the contract and respond to all of them
---   with the current UTXO set at the given address.
-handleUtxoQueries ::
-    ( HasUtxoAt s
-    , Member (LogObserve (LogMessage Text)) effs
-    , Member (LogMsg RequestHandlerLogMsg) effs
-    , Member ChainIndexEffect effs
+handleChainIndexQueries ::
+    ( Member (LogObserve (LogMessage Text)) effs
+    , Member ChainIndexQueryEffect effs
     )
-    => RequestHandler effs (Handlers s) (Event s)
-handleUtxoQueries =
-    maybeToHandler UtxoAt.utxoAtRequest
-    >>> RequestHandler.handleUtxoQueries
-    >>^ UtxoAt.event
-
-handleTxConfirmedQueries ::
-    ( HasTxConfirmation s
-    , Member (LogObserve (LogMessage Text)) effs
-    , Member ChainIndexEffect effs
-    )
-    => RequestHandler effs (Handlers s) (Event s)
-handleTxConfirmedQueries =
-    maybeToHandler AwaitTxConfirmed.txId
-    >>> RequestHandler.handleTxConfirmedQueries
-    >>^ AwaitTxConfirmed.event . unTxConfirmed
-
-handleNextTxAtQueries ::
-    ( HasWatchAddress s
-    , Member (LogObserve (LogMessage Text)) effs
-    , Member (LogMsg RequestHandlerLogMsg) effs
-    , Member WalletEffect effs
-    , Member ChainIndexEffect effs
-    )
-    => RequestHandler effs (Handlers s) (Event s)
-handleNextTxAtQueries =
-    maybeToHandler WatchAddress.watchAddressRequest
-    >>> RequestHandler.handleNextTxAtQueries
-    >>^ WatchAddress.event
+    => RequestHandler effs PABReq PABResp
+handleChainIndexQueries =
+    generalise (preview E._ChainIndexQueryReq)
+               E.ChainIndexQueryResp
+               RequestHandler.handleChainIndexQueries
 
 handleOwnPubKeyQueries ::
-    ( HasOwnPubKey s
-    , Member (LogObserve (LogMessage Text)) effs
+    ( Member (LogObserve (LogMessage Text)) effs
     , Member WalletEffect effs
     )
-    => RequestHandler effs (Handlers s) (Event s)
+    => RequestHandler effs PABReq PABResp
 handleOwnPubKeyQueries =
-    maybeToHandler OwnPubKey.request
-    >>> RequestHandler.handleOwnPubKey
-    >>^ OwnPubKey.event
+    generalise (preview E._OwnPublicKeyReq) E.OwnPublicKeyResp RequestHandler.handleOwnPubKey
 
 handleOwnInstanceIdQueries ::
-    ( HasOwnId s
-    , Member (LogObserve (LogMessage Text)) effs
+    ( Member (LogObserve (LogMessage Text)) effs
     , Member (Reader ContractInstanceId) effs
     )
-    => RequestHandler effs (Handlers s) (Event s)
+    => RequestHandler effs PABReq PABResp
 handleOwnInstanceIdQueries =
-    maybeToHandler OwnInstance.request
-    >>> RequestHandler.handleOwnInstanceIdQueries
-    >>^ OwnInstance.event
-
-handleContractNotifications ::
-    ( HasContractNotify s
-    , Member (LogObserve (LogMessage Text)) effs
-    , Member ContractRuntimeEffect effs
-    )
-    => RequestHandler effs (Handlers s) (Event s)
-handleContractNotifications =
-    maybeToHandler Notify.request
-    >>> RequestHandler.handleContractNotifications
-    >>^ Notify.event
-
--- | The wallets used in mockchain simulations by default. There are
---   ten wallets because the emulator comes with ten private keys.
-allWallets :: [EM.Wallet]
-allWallets = EM.Wallet <$> [1 .. 10]
+    generalise (preview E._OwnContractInstanceIdReq) E.OwnContractInstanceIdResp RequestHandler.handleOwnInstanceIdQueries
 
 defaultDist :: InitialDistribution
-defaultDist = defaultDistFor allWallets
+defaultDist = defaultDistFor EM.knownWallets
 
 defaultDistFor :: [EM.Wallet] -> InitialDistribution
 defaultDistFor wallets = Map.fromList $ zip wallets (repeat (Ada.lovelaceValueOf 100_000_000))

@@ -10,8 +10,8 @@ import           Prelude                                  hiding (even)
 
 import           PlutusCore.StdLib.Data.Bool
 import           PlutusCore.StdLib.Data.Function
-import           PlutusCore.StdLib.Data.List
 import           PlutusCore.StdLib.Data.Nat
+import           PlutusCore.StdLib.Data.ScottList
 import           PlutusCore.StdLib.Meta
 import           PlutusCore.StdLib.Meta.Data.Tuple
 import           PlutusCore.StdLib.Type
@@ -25,19 +25,19 @@ import qualified UntypedPlutusCore                        as UPLC
 import           UntypedPlutusCore.Evaluation.Machine.Cek
 
 import           Data.Bifunctor
-import qualified Data.ByteString                          as BS
 import qualified Data.ByteString.Lazy                     as BSL
+import           Data.Text                                (Text)
 import           Data.Text.Encoding                       (encodeUtf8)
 import           Test.Tasty
 import           Test.Tasty.Golden
 
 -- (con integer)
 integer :: uni `Includes` Integer => Type TyName uni ()
-integer = mkTyBuiltin @ Integer ()
+integer = mkTyBuiltin @_ @Integer ()
 
 -- (con string)
-string :: uni `Includes` String => Type TyName uni ()
-string = mkTyBuiltin @ String ()
+string :: uni `Includes` Text => Type TyName uni ()
+string = mkTyBuiltin @_ @Text ()
 
 evenAndOdd :: uni `Includes` Bool => Tuple (Term TyName Name uni fun) uni ()
 evenAndOdd = runQuote $ do
@@ -101,7 +101,7 @@ evenList :: Term TyName Name uni fun ()
 evenList = runQuote $ tupleTermAt () 0 evenAndOddList
 
 smallNatList :: Term TyName Name uni fun ()
-smallNatList = metaListToList nat nats where
+smallNatList = metaListToScottList nat nats where
     nats = Prelude.map metaIntegerToNat [1,2,3]
     nat = _recursiveType natData
 
@@ -127,20 +127,21 @@ closure = runQuote $ do
    builtin we have is ifThenElse.
 
    We test a number of terms to check whether they typecheck and whether they
-   evaluate without error.  There are three possible outcomes:
+   evaluate without error.  There are four possible outcomes:
 
      * The term typechecks and evaluates successfully
+     * The term typechecks and evaluation fails
      * The term is ill-typed but still evaluates successfully
      * The term is ill-typed and evaluation fails
 
-   We'll denote these outcomes by WellTypedRuns, IllTypedRuns, and IllTypedFails
+   We'll denote these outcomes by WellTypedRuns, WellTypedFails, IllTypedRuns, and IllTypedFails
    respectively; each test is labelled with one of these.
 -}
 
 -- Various components that we'll use to build larger terms for testing
 
 lte :: Term TyName Name DefaultUni DefaultFun ()
-lte = Builtin () LessThanEqInteger
+lte = Builtin () LessThanEqualsInteger
 
 eleven :: Term TyName Name DefaultUni DefaultFun ()
 eleven = mkConstant @Integer () 11
@@ -149,10 +150,10 @@ twentytwo :: Term TyName Name DefaultUni DefaultFun ()
 twentytwo = mkConstant @Integer () 22
 
 stringResultTrue :: Term TyName Name DefaultUni DefaultFun ()
-stringResultTrue = mkConstant @String () "11 <= 22"
+stringResultTrue = mkConstant @Text () "11 <= 22"
 
 stringResultFalse :: Term TyName Name DefaultUni DefaultFun ()
-stringResultFalse = mkConstant @String () "¬(11 <= 22)"
+stringResultFalse = mkConstant @Text () "¬(11 <= 22)"
 
 -- 11 <= 22
 lteExpr :: Term TyName Name DefaultUni DefaultFun ()
@@ -167,7 +168,7 @@ ite = Builtin () IfThenElse
 
 -- { (builtin ifThenElse) t }
 iteAt :: Type TyName DefaultUni () -> Term TyName Name DefaultUni DefaultFun ()
-iteAt ty = TyInst () ite ty
+iteAt = TyInst () ite
 
 -- [ (builtin ifThenElse) (11<=22) ] : IllTypedFails (ifThenElse isn't
 -- instantiated: type expected, term supplied.)
@@ -188,10 +189,10 @@ iteAtIntegerWithCond :: Term TyName Name DefaultUni DefaultFun ()
 iteAtIntegerWithCond = Apply () iteAtInteger lteExpr
 
 -- [ { (builtin ifThenElse) (con integer) } "11 <= 22" "¬(11<=22)" ] :
--- IllTypedRuns.  This is ill-typed because the first term argument is a string
--- and a boolean is expected.  However, it will execute successfully (and the
--- result will be ill-typed) because it's not saturated and so the built-in
--- application machinery will never see it.
+-- IllTypedFails.  This is ill-typed because the first term argument is a string
+-- and a boolean is expected. Even though it's not saturated, it won't execute succefully,
+-- because the builtin application machinery unlifts an argument the moment it gets it,
+-- without waiting for full saturation.
 iteAtIntegerWrongCondType :: Term TyName Name DefaultUni DefaultFun ()
 iteAtIntegerWrongCondType = mkIterApp () iteAtInteger [stringResultTrue, stringResultFalse]
 
@@ -201,6 +202,13 @@ iteAtIntegerWrongCondType = mkIterApp () iteAtInteger [stringResultTrue, stringR
 -- correctly interleaved, not that instantiations are correct.
 iteAtIntegerFullyApplied :: Term TyName Name DefaultUni DefaultFun ()
 iteAtIntegerFullyApplied = mkIterApp () iteAtIntegerWithCond [stringResultTrue, stringResultFalse]
+
+-- [ (builtin divideInteger) 1 0 ] : WellTypedFails. Division by zero.
+diFullyApplied :: Term TyName Name DefaultUni DefaultFun ()
+diFullyApplied = mkIterApp () (Builtin () DivideInteger)
+    [ mkConstant @Integer () 1
+    , mkConstant @Integer () 0
+    ]
 
 -- { (builtin ifThenElse) (con string) } : WellTypedRuns
 iteAtString :: Term TyName Name DefaultUni DefaultFun ()
@@ -300,11 +308,6 @@ mulInstError2 = Apply () (TyInst () (Apply () mul eleven) string) twentytwo
 mulInstError3 :: Term TyName Name DefaultUni DefaultFun ()
 mulInstError3 = TyInst () (Apply () (Apply () mul eleven) twentytwo) string
 
-takeTooMuch :: Term TyName Name DefaultUni DefaultFun ()
-takeTooMuch = mkIterApp () (Builtin () TakeByteString)
-    [ mkConstant () $ (2 :: Integer) ^ (150 :: Integer)
-    , mkConstant () ("whatever" :: BS.ByteString)
-    ]
 
 -- Running the tests
 
@@ -317,12 +320,12 @@ goldenVsEvaluatedCK :: String -> Term TyName Name DefaultUni DefaultFun () -> Te
 goldenVsEvaluatedCK name
     = goldenVsPretty ".plc.golden" name
     . bimap (fmap UPLC.erase) UPLC.erase
-    . evaluateCkNoEmit defBuiltinsRuntime
+    . evaluateCkNoEmit defaultBuiltinsRuntime
 
 goldenVsEvaluatedCEK :: String -> Term TyName Name DefaultUni DefaultFun () -> TestTree
 goldenVsEvaluatedCEK name
     = goldenVsPretty ".plc.golden" name
-    . evaluateCekNoEmit defBuiltinsRuntime
+    . evaluateCekNoEmit defaultCekParameters
     . UPLC.erase
 
 runTypecheck
@@ -342,7 +345,7 @@ goldenVsTypecheckedEvaluatedCK name term =
     -- that the term is well-typed before checking that the type of the result is the
     -- one stored in the golden file (we could simply check the two types for equality,
     -- but since we're doing golden testing in this file, why not do it here as well).
-    case (runTypecheck term, evaluateCkNoEmit defBuiltinsRuntime term) of
+    case (runTypecheck term, evaluateCkNoEmit defaultBuiltinsRuntime term) of
         (Right _, Right res) -> goldenVsTypechecked name res
         _                    -> testGroup name []
 
@@ -352,7 +355,7 @@ namesAndTests =
    , ("even3", Apply () even $ metaIntegerToNat 3)
    , ("evenList", Apply () natSum $ Apply () evenList smallNatList)
    , ("polyError", polyError)
-   , ("polyErrorInst", TyInst () polyError (mkTyBuiltin @Integer ()))
+   , ("polyErrorInst", TyInst () polyError (mkTyBuiltin @_ @Integer ()))
    , ("closure", closure)
    , ("ite", ite)
    , ("iteUninstantiatedWithCond", iteUninstantiatedWithCond)
@@ -361,6 +364,7 @@ namesAndTests =
    , ("iteAtIntegerWithCond", iteAtIntegerWithCond)
    , ("iteAtIntegerWrongCondType", iteAtIntegerWrongCondType)
    , ("iteAtIntegerFullyApplied", iteAtIntegerFullyApplied)
+   , ("diFullyApplied", diFullyApplied)
    , ("iteAtString", iteAtString)
    , ("iteAtStringWithCond", iteAtStringWithCond)
    , ("iteAtStringFullyApplied", iteAtStringFullyApplied)
@@ -378,7 +382,6 @@ namesAndTests =
    , ("mulInstError1", mulInstError1)
    , ("mulInstError2", mulInstError2)
    , ("mulInstError3", mulInstError3)
-   , ("takeTooMuch", takeTooMuch)
    ]
 
 test_golden :: TestTree

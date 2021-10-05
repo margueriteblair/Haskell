@@ -8,15 +8,14 @@ module Evaluation.ApplyBuiltinName
     ( test_applyDefaultBuiltin
     ) where
 
+
+import           PlutusCore                              (defaultBuiltinCostModel)
 import           UntypedPlutusCore
 
-import           PlutusCore.Builtins
 import           PlutusCore.Constant
-import           PlutusCore.Evaluation.Machine.ExBudget
-import           PlutusCore.Evaluation.Machine.ExBudgetingDefaults
+import           PlutusCore.Default
 import           PlutusCore.Evaluation.Machine.Exception
 import           PlutusCore.Generators
-import           PlutusCore.Universe
 
 import           Control.Monad.Except
 import           Data.Proxy
@@ -51,18 +50,15 @@ newtype AppM a = AppM
     } deriving newtype (Functor, Applicative, Monad, MonadError AppErr)
       deriving (MonadEmitter) via (NoEmitterT AppM)
 
-instance SpendBudget AppM DefaultFun () (Term Name DefaultUni DefaultFun ()) where
-    spendBudget _ _ = pure ()
-
 -- | This shows that the builtin application machinery accepts untyped terms.
 test_applyBuiltinFunction :: DefaultFun -> TestTree
 test_applyBuiltinFunction fun =
     testProperty (show fun) . property $ case toBuiltinMeaning fun of
         BuiltinMeaning sch f toExF -> do
-            let exF = toExF defaultCostModel
+            let exF = toExF defaultBuiltinCostModel
             withGenArgsRes sch f $ \args res ->
                 -- The calls to 'unAppM' are just to drive type inference.
-                unAppM (applyTypeSchemed fun sch f exF args) === unAppM (makeKnown res)
+                unAppM (applyTypeSchemed (\_ _ -> pure ()) fun sch f exF args) === unAppM (makeKnown res)
 
 test_applyDefaultBuiltin :: TestTree
 test_applyDefaultBuiltin =
@@ -76,12 +72,8 @@ test_applyDefaultBuiltin =
         , test_applyBuiltinFunction RemainderInteger
         , test_applyBuiltinFunction LessThanInteger
         , test_applyBuiltinFunction LessThanEqInteger
-        , test_applyBuiltinFunction GreaterThanInteger
-        , test_applyBuiltinFunction GreaterThanEqInteger
         , test_applyBuiltinFunction EqInteger
-        , test_applyBuiltinFunction Concatenate
-        , test_applyBuiltinFunction TakeByteString
-        , test_applyBuiltinFunction DropByteString
+        , test_applyBuiltinFunction AppendByteString
         , test_applyBuiltinFunction EqByteString
         , test_applyBuiltinFunction SHA2
         , test_applyBuiltinFunction SHA3

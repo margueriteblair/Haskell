@@ -15,29 +15,28 @@
 {-# LANGUAGE ViewPatterns          #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
-{-# OPTIONS_GHC -fno-strictness #-}
 {-# OPTIONS_GHC -fno-specialise #-}
 -- | A multisig contract written as a state machine.
---   $multisig
 module Plutus.Contracts.MultiSigStateMachine(
+    -- $multisig
       Params(..)
     , Payment(..)
     , State
     , mkValidator
-    , scriptInstance
+    , typedValidator
     , MultiSigError(..)
     , MultiSigSchema
     , contract
     ) where
 
 import           Control.Lens                 (makeClassyPrisms)
-import           Control.Monad                (forever)
+import           Control.Monad                (forever, void)
 import           Data.Aeson                   (FromJSON, ToJSON)
 import           GHC.Generics                 (Generic)
-import           Ledger                       (PubKeyHash, Slot, pubKeyHash)
+import           Ledger                       (POSIXTime, PubKeyHash, pubKeyHash)
 import           Ledger.Constraints           (TxConstraints)
 import qualified Ledger.Constraints           as Constraints
-import           Ledger.Contexts              (TxInfo (..), ValidatorCtx (..))
+import           Ledger.Contexts              (ScriptContext (..), TxInfo (..))
 import qualified Ledger.Contexts              as Validation
 import qualified Ledger.Interval              as Interval
 import qualified Ledger.Typed.Scripts         as Scripts
@@ -45,13 +44,14 @@ import           Ledger.Value                 (Value)
 import qualified Ledger.Value                 as Value
 
 import           Plutus.Contract
-import           Plutus.Contract.StateMachine (AsSMContractError, State (..), StateMachine (..), TransitionResult (..),
-                                               Void)
+import           Plutus.Contract.StateMachine (AsSMContractError, State (..), StateMachine (..), Void)
 import qualified Plutus.Contract.StateMachine as SM
-import qualified PlutusTx                     as PlutusTx
+import qualified PlutusTx
 import           PlutusTx.Prelude             hiding (Applicative (..))
 
---   $multisig
+import qualified Prelude                      as Haskell
+
+-- $multisig
 --   The n-out-of-m multisig contract works like a joint account of
 --   m people, requiring the consent of n people for any payments.
 --   In the smart contract the signatories are represented by public keys,
@@ -71,10 +71,10 @@ data Payment = Payment
     -- ^ How much to pay out
     , paymentRecipient :: PubKeyHash
     -- ^ Address to pay the value to
-    , paymentDeadline  :: Slot
+    , paymentDeadline  :: POSIXTime
     -- ^ Time until the required amount of signatures has to be collected.
     }
-    deriving stock (Show, Generic)
+    deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
 instance Eq Payment where
@@ -97,7 +97,7 @@ data MSState =
 
     | CollectingSignatures Payment [PubKeyHash]
     -- ^ A payment has been proposed and is awaiting signatures.
-    deriving stock (Show, Generic)
+    deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
 instance Eq MSState where
@@ -121,13 +121,13 @@ data Input =
 
     | Pay
     -- ^ Make the payment.
-    deriving stock (Show, Generic)
+    deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
 data MultiSigError =
     MSContractError ContractError
     | MSStateMachineError SM.SMContractError
-    deriving stock (Show, Generic)
+    deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 makeClassyPrisms ''MultiSigError
 
@@ -138,8 +138,7 @@ instance AsSMContractError MultiSigError where
     _SMContractError = _MSStateMachineError
 
 type MultiSigSchema =
-    BlockchainActions
-        .\/ Endpoint "propose-payment" Payment
+        Endpoint "propose-payment" Payment
         .\/ Endpoint "add-signature" ()
         .\/ Endpoint "cancel-payment" ()
         .\/ Endpoint "pay" ()
@@ -165,7 +164,7 @@ isValidProposal vl (Payment amt _ _) = amt `Value.leq` vl
 -- | Check whether a proposed 'Payment' has expired.
 proposalExpired :: TxInfo -> Payment -> Bool
 proposalExpired TxInfo{txInfoValidRange} Payment{paymentDeadline} =
-    paymentDeadline `Interval.before` txInfoValidRange
+    (paymentDeadline - 1) `Interval.before` txInfoValidRange
 
 {-# INLINABLE proposalAccepted #-}
 -- | Check whether enough signatories (represented as a list of public keys)
@@ -179,14 +178,14 @@ proposalAccepted (Params signatories numReq) pks =
 -- | @valuePreserved v p@ is true if the pending transaction @p@ pays the amount
 --   @v@ to this script's address. It does not assert the number of such outputs:
 --   this is handled in the generic state machine validator.
-valuePreserved :: Value -> ValidatorCtx -> Bool
-valuePreserved vl ctx = vl == Validation.valueLockedBy (valCtxTxInfo ctx) (Validation.ownHash ctx)
+valuePreserved :: Value -> ScriptContext -> Bool
+valuePreserved vl ctx = vl == Validation.valueLockedBy (scriptContextTxInfo ctx) (Validation.ownHash ctx)
 
 {-# INLINABLE valuePaid #-}
 -- | @valuePaid pm ptx@ is true if the pending transaction @ptx@ pays
 --   the amount specified in @pm@ to the public key address specified in @pm@
 valuePaid :: Payment -> TxInfo -> Bool
-valuePaid (Payment vl pk _) txinfo = vl == (Validation.valuePaidTo txinfo pk)
+valuePaid (Payment vl pk _) txinfo = vl == Validation.valuePaidTo txinfo pk
 
 {-# INLINABLE transition #-}
 transition :: Params -> State MSState -> Input -> Maybe (TxConstraints Void Void, State MSState)
@@ -220,7 +219,7 @@ transition params State{ stateData =s, stateValue=currentValue} i = case (s, i) 
         | proposalAccepted params pkh ->
             let Payment{paymentAmount, paymentRecipient, paymentDeadline} = payment
                 constraints =
-                    Constraints.mustValidateIn (Interval.to paymentDeadline)
+                    Constraints.mustValidateIn (Interval.to $ paymentDeadline - 1)
                     <> Constraints.mustPayToPubKey paymentRecipient paymentAmount
             in Just ( constraints
                     , State
@@ -230,30 +229,26 @@ transition params State{ stateData =s, stateValue=currentValue} i = case (s, i) 
                     )
     _ -> Nothing
 
-{-# INLINABLE mkValidator #-}
-mkValidator :: Params -> Scripts.ValidatorType MultiSigSym
-mkValidator p = SM.mkValidator $ SM.mkStateMachine (transition p) (const False)
-
-validatorCode :: Params -> PlutusTx.CompiledCode (Scripts.ValidatorType MultiSigSym)
-validatorCode params = $$(PlutusTx.compile [|| mkValidator ||]) `PlutusTx.applyCode` PlutusTx.liftCode params
-
 type MultiSigSym = StateMachine MSState Input
 
-scriptInstance :: Params -> Scripts.ScriptInstance MultiSigSym
-scriptInstance params = Scripts.validator @MultiSigSym
-    (validatorCode params)
+{-# INLINABLE machine #-}
+machine :: Params -> MultiSigSym
+machine params = SM.mkStateMachine Nothing (transition params) isFinal where
+    isFinal _ = False
+
+{-# INLINABLE mkValidator #-}
+mkValidator :: Params -> Scripts.ValidatorType MultiSigSym
+mkValidator params = SM.mkValidator $ machine params
+
+typedValidator :: Params -> Scripts.TypedValidator MultiSigSym
+typedValidator = Scripts.mkTypedValidatorParam @MultiSigSym
+    $$(PlutusTx.compile [|| mkValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
     where
-        wrap = Scripts.wrapValidator @MSState @Input
-
-machineInstance :: Params -> SM.StateMachineInstance MSState Input
-machineInstance params =
-    SM.StateMachineInstance
-    (SM.mkStateMachine (transition params) (const False))
-    (scriptInstance params)
+        wrap = Scripts.wrapValidator
 
 client :: Params -> SM.StateMachineClient MSState Input
-client p = SM.mkStateMachineClient (machineInstance p)
+client params = SM.mkStateMachineClient $ SM.StateMachineInstance (machine params) (typedValidator params)
 
 contract ::
     ( AsContractError e
@@ -263,14 +258,12 @@ contract ::
     -> Contract () MultiSigSchema e ()
 contract params = forever endpoints where
     theClient = client params
-    endpoints = (TransitionSuccess <$> lock) `select` propose `select` cancel `select` addSignature `select` pay
-    propose = endpoint @"propose-payment" >>= SM.runStep theClient . ProposePayment
-    cancel  = endpoint @"cancel-payment" >> SM.runStep theClient Cancel
-    addSignature = endpoint @"add-signature" >> (pubKeyHash <$> ownPubKey) >>= SM.runStep theClient . AddSignature
-    lock = do
-        value <- endpoint @"lock"
-        SM.runInitialise theClient Holding value
-    pay = endpoint @"pay" >> SM.runStep theClient Pay
+    endpoints = selectList [lock, propose, cancel, addSignature, pay]
+    propose = endpoint @"propose-payment" $ void . SM.runStep theClient . ProposePayment
+    cancel  = endpoint @"cancel-payment" $ \() -> void $ SM.runStep theClient Cancel
+    addSignature = endpoint @"add-signature" $ \() -> (pubKeyHash <$> ownPubKey) >>= void . SM.runStep theClient . AddSignature
+    lock = endpoint @"lock" $ void . SM.runInitialise theClient Holding
+    pay = endpoint @"pay" $ \() -> void $ SM.runStep theClient Pay
 
 PlutusTx.unstableMakeIsData ''Payment
 PlutusTx.makeLift ''Payment

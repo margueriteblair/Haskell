@@ -40,7 +40,7 @@ import Plutus.V1.Ledger.TxId (TxId(TxId))
 import Plutus.V1.Ledger.Value (CurrencySymbol, TokenName)
 import Prelude (const, map, show, unit, ($), (<$>), (<<<), (<>))
 import Wallet.Emulator.Chain (ChainEvent(..))
-import Wallet.Emulator.ChainIndex (ChainIndexEvent(..))
+import Plutus.ChainIndex.ChainIndexLog (ChainIndexLog(..))
 import Wallet.Emulator.MultiAgent (EmulatorEvent'(..))
 import Wallet.Emulator.MultiAgent as MultiAgent
 import Wallet.Emulator.NodeClient (NodeClientEvent(..))
@@ -91,19 +91,50 @@ eveEvent :: forall a. MultiAgent.EmulatorTimeEvent a -> a
 eveEvent (MultiAgent.EmulatorTimeEvent { _eteEvent }) = _eteEvent
 
 emulatorEventPane :: forall i p. EmulatorEvent' -> HTML p i
-emulatorEventPane (ChainIndexEvent _ (ReceiveBlockNotification numTransactions)) =
+emulatorEventPane (ChainIndexEvent _ (InsertionSuccess tip p)) =
   div_
-    [ text $ "Chain index receive block notification. " <> show numTransactions <> " transactions." ]
+    [ text $ "Chain index successful insertion: New tip is "
+        <> show tip
+        <> ". "
+        <> show p
+    ]
 
-emulatorEventPane (ChainIndexEvent _ (AddressStartWatching address)) =
+emulatorEventPane (ChainIndexEvent _ (RollbackSuccess tip)) =
   div_
-    [ text $ "Submitting transaction: " <> show address ]
+    [ text $ "Chain index successful rollback. New tip is"
+        <> show tip
+    ]
 
-emulatorEventPane (ChainIndexEvent _ (HandlingAddressChangeRequest rq _)) =
+emulatorEventPane (ChainIndexEvent _ (Err ciError)) =
   div_
-    [ text $ "Handling address change request: " <> show rq ]
+    [ text $ "Chain index error: "
+        <> show ciError
+    ]
 
-emulatorEventPane (ClientEvent _ (TxSubmit (TxId txId))) =
+emulatorEventPane (ChainIndexEvent _ (TxNotFound txid)) =
+  div_
+    [ text $ "Transaction not found with id "
+        <> show txid
+    ]
+
+emulatorEventPane (ChainIndexEvent _ (TxOutNotFound ref)) =
+  div_
+    [ text $ "Transaction output not from reference "
+        <> show ref
+    ]
+
+emulatorEventPane (ChainIndexEvent _ TipIsGenesis) =
+  div_
+    [ text $ "Chain index tip is genesis"
+    ]
+
+emulatorEventPane (ChainIndexEvent _ (NoDatumScriptAddr txout)) =
+  div_
+    [ text $ "The following transaction output from script address does not have a datum: "
+        <> show txout
+    ]
+
+emulatorEventPane (ClientEvent _ (TxSubmit (TxId txId) _)) =
   div_
     [ text $ "Submitting transaction: " <> txId.getTxId ]
 
@@ -111,11 +142,7 @@ emulatorEventPane (ChainEvent (TxnValidate (TxId txId) _ _)) =
   div_
     [ text $ "Validating transaction: " <> txId.getTxId ]
 
-emulatorEventPane (NotificationEvent notificationEvent) =
-  div_
-    [ text $ "Notification event: " <> show notificationEvent ]
-
-emulatorEventPane (ChainEvent (TxnValidationFail (TxId txId) _ error _)) =
+emulatorEventPane (ChainEvent (TxnValidationFail _ (TxId txId) _ error _)) =
   div [ class_ $ ClassName "error" ]
     [ text $ "Validation failed: " <> txId.getTxId
     , br_
@@ -127,13 +154,14 @@ emulatorEventPane (ChainEvent (SlotAdd (Slot slot))) =
   div [ class_ $ ClassName "info" ]
     [ text $ "Add slot " <> show slot.getSlot ]
 
+-- TODO: convert Wallet back to WalletNumber?
 emulatorEventPane (WalletEvent (Wallet walletId) (GenericLog logMessageText)) =
   div [ class_ $ ClassName "error" ]
-    [ text $ "Message from wallet " <> show walletId.getWallet <> ": " <> logMessageText ]
+    [ text $ "Message from wallet " <> show walletId.getWalletId <> ": " <> logMessageText ]
 
 emulatorEventPane (WalletEvent (Wallet walletId) logMessage) =
   div [ class_ $ ClassName "error" ]
-    [ text $ "Message from wallet " <> show walletId.getWallet <> ": " <> show logMessage ]
+    [ text $ "Message from wallet " <> show walletId.getWalletId <> ": " <> show logMessage ]
 
 emulatorEventPane (InstanceEvent (ContractInstanceLog { _cilMessage, _cilTag })) =
   div_

@@ -23,9 +23,17 @@ common lang
                         DeriveGeneric StandaloneDeriving DeriveLift
                         GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable
                         DeriveTraversable
-    ghc-options: -Wall -Wnoncanonical-monad-instances
+    ghc-options: -Wall -Wnoncanonical-monad-instances -Wunused-packages
                  -Wincomplete-uni-patterns -Wincomplete-record-updates
                  -Wredundant-constraints -Widentities
+                 -- See Plutus Tx readme
+                 -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
+
+flag defer-plugin-errors
+    description:
+        Defer errors from the plugin, useful for things like Haddock that can't handle it.
+    default: False
+    manual: True
 
 library
     import: lang
@@ -34,16 +42,7 @@ library
         Data.Text.Extras
         Data.UUID.Extras
         Plutus.Contract
-        Plutus.Contract.Effects.AwaitSlot
-        Plutus.Contract.Effects.AwaitTxConfirmed
-        Plutus.Contract.Effects.Instance
-        Plutus.Contract.Effects.RPC
-        Plutus.Contract.Effects.ExposeEndpoint
-        Plutus.Contract.Effects.Notify
-        Plutus.Contract.Effects.OwnPubKey
-        Plutus.Contract.Effects.UtxoAt
-        Plutus.Contract.Effects.WatchAddress
-        Plutus.Contract.Effects.WriteTx
+        Plutus.Contract.Effects
         Plutus.Contract.Request
         Plutus.Contract.Checkpoint
         Plutus.Contract.Constraints
@@ -51,25 +50,24 @@ library
         Plutus.Contract.Schema
         Plutus.Contract.Trace
         Plutus.Contract.Trace.RequestHandler
-        Plutus.Contract.Servant
         Plutus.Contract.Resumable
         Plutus.Contract.StateMachine
         Plutus.Contract.StateMachine.OnChain
+        Plutus.Contract.StateMachine.MintingPolarity
+        Plutus.Contract.StateMachine.ThreadToken
         Plutus.Contract.Tx
         Plutus.Contract.Types
         Plutus.Contract.Util
         Plutus.Contract.Wallet
         Plutus.Contract.Typed.Tx
+        Plutus.Contract.Secrets
         Wallet.Emulator
         Wallet.Emulator.Types
         Wallet.Emulator.Chain
-        Wallet.Emulator.ChainIndex
-        Wallet.Emulator.ChainIndex.Index
         Wallet.Emulator.Error
         Wallet.Emulator.Folds
         Wallet.Emulator.LogMessages
         Wallet.Emulator.NodeClient
-        Wallet.Emulator.Notify
         Wallet.Emulator.MultiAgent
         Wallet.Emulator.Stream
         Wallet.Emulator.Wallet
@@ -90,6 +88,7 @@ library
         Plutus.Trace.Effects.Waiting
         Plutus.Trace.Emulator
         Plutus.Trace.Emulator.ContractInstance
+        Plutus.Trace.Emulator.Extract
         Plutus.Trace.Emulator.System
         Plutus.Trace.Emulator.Types
         Plutus.Trace.Playground
@@ -97,79 +96,72 @@ library
         Plutus.Trace.Tag
     hs-source-dirs: src
     build-depends:
+        plutus-chain-index -any,
+        plutus-core -any,
         plutus-ledger -any,
         plutus-ledger-api -any,
         plutus-tx -any,
-        freer-extras -any,
+        freer-extras -any
+    build-depends:
+        cardano-api -any,
+        cardano-crypto -any,
+        cardano-ledger-core -any,
     build-depends:
         aeson >= 1.5.2,
+        aeson-pretty -any,
         base >=4.7 && <5,
+        bytestring -any,
         containers -any,
+        cryptonite >=0.25,
         data-default -any,
         deepseq -any,
-        lens -any,
-        text -any,
-        hashable -any,
-        bytestring -any,
-        servant -any,
-        servant-server -any,
-        serialise -any,
-        mtl -any,
-        semigroupoids -any,
-        profunctors -any,
-        template-haskell -any,
-        transformers -any,
-        warp -any,
-        newtype-generics -any,
-        hedgehog -any,
-        transformers-base -any,
-        monad-control -any,
-        mmorph -any,
-        row-types < 1.0,
-        freer-simple -any,
-        prettyprinter >=1.1.0.1,
-        semigroups -any,
-        cryptonite >=0.25,
+        directory -any,
+        filepath -any,
         fingertree -any,
-        uuid -any,
-        aeson-pretty -any,
-        QuickCheck -any,
+        flat -any,
+        foldl -any,
+        freer-simple -any,
+        hashable -any,
+        hedgehog -any,
+        lens -any,
+        memory -any,
+        mmorph -any,
+        monad-control -any,
+        mtl -any,
+        newtype-generics -any,
+        prettyprinter >=1.1.0.1,
+        profunctors -any,
         quickcheck-dynamic -any,
         random -any,
+        row-types >= 1.0.1.0,
+        semigroupoids -any,
+        semigroups -any,
+        servant -any,
+        serialise -any,
+        streaming -any,
+        template-haskell -any,
+        text -any,
+        transformers -any,
         unordered-containers -any,
-        foldl -any,
-        streaming -any
+        uuid -any,
+        IntervalMap -any,
+        QuickCheck -any,
+        openapi3 -any
 
     if !(impl(ghcjs) || os(ghcjs))
+        build-depends: plutus-tx-plugin -any
+
+    if flag(defer-plugin-errors)
+        ghc-options: -fplugin-opt PlutusTx.Plugin:defer-errors
+
+    if !(impl(ghcjs) || os(ghcjs) || os(windows))
         exposed-modules:
             Plutus.Contract.Test
             Plutus.Contract.Test.ContractModel
         build-depends:
             tasty -any,
             tasty-hunit -any,
-
-test-suite contract-doctests
-    type: exitcode-stdio-1.0
-    -- Include 'doc' so Haskell.nix finds the symlink sources
-    hs-source-dirs:
-        doctest
-        doc
-    default-language: Haskell2010
-    main-is: Main.hs
-    ghc-options: -pgmL unlit -optL--ghc -optL--language=haskell -optL--from=asciidoc -Wno-unused-imports
-    build-tool-depends: unlit:unlit -any, doctest:doctest -any
-    other-modules:
-      ContractAPI
-    build-depends:
-      base >=4.9 && <5,
-      template-haskell >=2.13.0.0,
-      bytestring -any,
-      freer-extras -any,
-      plutus-core -any,
-      plutus-contract -any,
-      plutus-ledger -any,
-      prettyprinter -any,
-      containers -any
+            tasty-golden -any,
 
 test-suite plutus-contract-test
     -- TODO: put this back, turns out there were lots of warnings in the `plutus-emulator` tests...
@@ -183,6 +175,8 @@ test-suite plutus-contract-test
         Spec.Emulator
         Spec.Rows
         Spec.State
+        Spec.ThreadToken
+        Spec.Secrets
     build-depends:
         base >=4.9 && <5,
         bytestring -any,
@@ -193,6 +187,7 @@ test-suite plutus-contract-test
         tasty -any,
         tasty-golden -any,
         tasty-hunit -any,
+        tasty-quickcheck -any,
         tasty-hedgehog -any,
         text -any,
         mtl -any,
@@ -204,7 +199,8 @@ test-suite plutus-contract-test
         plutus-ledger -any,
         plutus-tx -any,
         freer-simple -any,
-        aeson -any
+        aeson -any,
+        semigroupoids -any
 
     if !(impl(ghcjs) || os(ghcjs))
         build-depends: plutus-tx-plugin -any

@@ -3,6 +3,10 @@ layout: page
 title: Table of Contents
 ---
 
+```
+{-# OPTIONS --rewriting #-}
+```
+
 The Formalisation is split into several sections.
 
 The main body of the formalisation involves a intrinsically typed
@@ -52,12 +56,12 @@ instead. Equality of types is specified in the
 specification of type compuation and is used in the normalisation
 proof.
 
+
 ```
 import Type
 import Type.RenamingSubstitution
 import Type.Equality
 import Type.ReductionS
-import Type.ReductionF
 import Type.ReductionC
 import Type.CC
 import Type.CK
@@ -86,7 +90,6 @@ types such as integers and bytestrings and operations on them.
 
 ```
 import Builtin
-import Builtin.Signature
 import Builtin.Constant.Type
 import Builtin.Constant.Term
 ```
@@ -122,8 +125,9 @@ types
 import Algorithmic
 import Algorithmic.RenamingSubstitution
 import Algorithmic.Reduction
+import Algorithmic.ReductionEC
+
 import Algorithmic.Evaluation
-import Algorithmic.Main
 import Algorithmic.Completeness
 import Algorithmic.Soundness
 import Algorithmic.Erasure
@@ -143,15 +147,10 @@ Extrinsically typed terms, reduction and evaluation
 import Scoped
 import Scoped.RenamingSubstitution
 
-import Scoped.Reduction
-
 import Scoped.Extrication
 import Scoped.Extrication.RenamingSubstitution
---import Scoped.Extrication.Reduction
 import Scoped.Erasure
 --import Scoped.Erasure.RenamingSubstitution
---import Scoped.Erasure.Reduction
-import Scoped.CK
 ```
 
 ## Untyped terms

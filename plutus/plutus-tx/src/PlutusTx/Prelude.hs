@@ -1,4 +1,5 @@
 -- Need some extra imports from the Prelude for doctests, annoyingly
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 {-# OPTIONS_GHC -fmax-simplifier-iterations=0 #-}
@@ -7,6 +8,7 @@ module PlutusTx.Prelude (
     -- $prelude
     -- * Classes
     module Eq,
+    module Enum,
     module Ord,
     module Semigroup,
     module Monoid,
@@ -16,27 +18,33 @@ module PlutusTx.Prelude (
     module Lattice,
     module Foldable,
     module Traversable,
-    -- * Standard functions
-    ($),
-    -- * String and tracing functions
-    trace,
-    traceIfTrue,
-    traceIfFalse,
-    traceError,
-    module String,
+    -- * Monad
+    (Haskell.>>=),
+    (Haskell.=<<),
+    (Haskell.>>),
+    Haskell.return,
+    -- * Standard functions, Tuples
+    module Base,
+    -- * Tracing functions
+    module Trace,
+    -- * String
+    BuiltinString,
+    appendString,
+    emptyString,
+    equalsString,
+    encodeUtf8,
     -- * Error
     error,
     check,
     -- * Booleans
     module Bool,
-    -- * Int operators
+    -- * Integer numbers
+    Integer,
     divide,
     modulo,
     quotient,
     remainder,
-    -- * Tuples
-    fst,
-    snd,
+    even,
     -- * Maybe
     module Maybe,
     -- * Either
@@ -44,11 +52,16 @@ module PlutusTx.Prelude (
     -- * Lists
     module List,
     -- * ByteStrings
-    ByteString,
+    BuiltinByteString,
+    appendByteString,
+    consByteString,
     takeByteString,
     dropByteString,
-    concatenate,
+    sliceByteString,
+    lengthOfByteString,
+    indexByteString,
     emptyByteString,
+    decodeUtf8,
     -- * Hashes and Signatures
     sha2_256,
     sha3_256,
@@ -60,20 +73,30 @@ module PlutusTx.Prelude (
     round,
     divMod,
     quotRem,
-    module Prelude
+    -- * Data
+    BuiltinData,
+    fromBuiltin,
+    toBuiltin
     ) where
 
 import           Data.String          (IsString (..))
+import           PlutusCore.Data      (Data (..))
 import           PlutusTx.Applicative as Applicative
+import           PlutusTx.Base        as Base
 import           PlutusTx.Bool        as Bool
-import           PlutusTx.Builtins    (ByteString, concatenate, dropByteString, emptyByteString, equalsByteString,
-                                       greaterThanByteString, lessThanByteString, sha2_256, sha3_256, takeByteString,
-                                       verifySignature)
+import           PlutusTx.Builtins    (BuiltinByteString, BuiltinData, BuiltinString, Integer, appendByteString,
+                                       appendString, consByteString, decodeUtf8, emptyByteString, emptyString,
+                                       encodeUtf8, equalsByteString, equalsString, error, fromBuiltin,
+                                       greaterThanByteString, indexByteString, lengthOfByteString, lessThanByteString,
+                                       sha2_256, sha3_256, sliceByteString, toBuiltin, trace, verifySignature)
 import qualified PlutusTx.Builtins    as Builtins
 import           PlutusTx.Either      as Either
+import           PlutusTx.Enum        as Enum
 import           PlutusTx.Eq          as Eq
+import           PlutusTx.ErrorCodes
 import           PlutusTx.Foldable    as Foldable
 import           PlutusTx.Functor     as Functor
+import           PlutusTx.IsData
 import           PlutusTx.Lattice     as Lattice
 import           PlutusTx.List        as List hiding (foldr)
 import           PlutusTx.Maybe       as Maybe
@@ -82,18 +105,13 @@ import           PlutusTx.Numeric     as Numeric
 import           PlutusTx.Ord         as Ord
 import           PlutusTx.Ratio       as Ratio
 import           PlutusTx.Semigroup   as Semigroup
-import           PlutusTx.String      as String
+import           PlutusTx.Trace       as Trace
 import           PlutusTx.Traversable as Traversable
-import           Prelude              as Prelude hiding (Applicative (..), Eq (..), Foldable (..), Functor (..),
-                                                  Monoid (..), Num (..), Ord (..), Rational, Semigroup (..),
-                                                  Traversable (..), all, and, any, concat, concatMap, const, divMod,
-                                                  either, elem, error, filter, fst, id, length, map, max, maybe, min,
-                                                  not, notElem, null, or, quotRem, reverse, round, sequence, snd, zip,
-                                                  (!!), ($), (&&), (++), (<$>), (||))
-import           Prelude              as Prelude (maximum, minimum)
+
+import qualified Prelude              as Haskell (return, (=<<), (>>), (>>=))
 
 -- this module does lots of weird stuff deliberately
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 -- $prelude
 -- The PlutusTx Prelude is a replacement for the Haskell Prelude that works
@@ -108,38 +126,10 @@ import           Prelude              as Prelude (maximum, minimum)
 -- >>> :set -XNoImplicitPrelude
 -- >>> import PlutusTx.Prelude
 
-{-# INLINABLE error #-}
--- | Terminate the evaluation of the script with an error message.
-error :: () -> a
-error = Builtins.error
-
 {-# INLINABLE check #-}
 -- | Checks a 'Bool' and aborts if it is false.
 check :: Bool -> ()
-check b = if b then () else error ()
-
-{-# INLINABLE trace #-}
--- | Emit the given string as a trace message before evaluating the argument.
-trace :: Builtins.String -> a -> a
--- The builtin trace is just a side-effecting function that returns unit, so
--- we have to be careful to make sure it actually gets evaluated, and not
--- thrown away by GHC or the PIR compiler.
-trace str a = case Builtins.trace str of () -> a
-
-{-# INLINABLE traceError #-}
--- | Log a message and then terminate the evaluation with an error.
-traceError :: Builtins.String -> a
-traceError str = error (trace str ())
-
-{-# INLINABLE traceIfFalse #-}
--- | Emit the given 'String' only if the argument evaluates to 'False'.
-traceIfFalse :: Builtins.String -> Bool -> Bool
-traceIfFalse str a = if a then True else trace str False
-
-{-# INLINABLE traceIfTrue #-}
--- | Emit the given 'String' only if the argument evaluates to 'True'.
-traceIfTrue :: Builtins.String -> Bool -> Bool
-traceIfTrue str a = if a then trace str True else False
+check b = if b then () else traceError checkHasFailedError
 
 {-# INLINABLE divide #-}
 -- | Integer division, rounding downwards
@@ -178,19 +168,16 @@ quotient = Builtins.quotientInteger
 remainder :: Integer -> Integer -> Integer
 remainder = Builtins.remainderInteger
 
-{-# INLINABLE fst #-}
--- | Plutus Tx version of 'Data.Tuple.fst'
-fst :: (a, b) -> a
-fst (a, _) = a
+{-# INLINABLE even #-}
+even :: Integer -> Bool
+even n = if modulo n 2 == 0 then True else False
 
-{-# INLINABLE snd #-}
--- | Plutus Tx version of 'Data.Tuple.snd'
-snd :: (a, b) -> b
-snd (_, b) = b
+{-# INLINABLE takeByteString #-}
+-- | Returns the n length prefix of a 'ByteString'.
+takeByteString :: Integer -> BuiltinByteString -> BuiltinByteString
+takeByteString n bs = Builtins.sliceByteString 0 (toBuiltin n) bs
 
-infixr 0 $
--- Normal $ is levity-polymorphic, which we can't handle.
-{-# INLINABLE ($) #-}
--- | Plutus Tx version of 'Data.Function.($)'.
-($) :: (a -> b) -> a -> b
-f $ a = f a
+{-# INLINABLE dropByteString #-}
+-- | Returns the suffix of a 'ByteString' after n elements.
+dropByteString :: Integer -> BuiltinByteString -> BuiltinByteString
+dropByteString n bs = Builtins.sliceByteString (toBuiltin n) (Builtins.lengthOfByteString bs - n) bs

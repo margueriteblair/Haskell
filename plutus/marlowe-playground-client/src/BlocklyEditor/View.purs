@@ -8,11 +8,13 @@ import BlocklyEditor.Types (Action(..), BottomPanelView(..), State, _bottomPanel
 import BottomPanel.Types (Action(..)) as BottomPanel
 import BottomPanel.View (render) as BottomPanel
 import Data.Array as Array
+import Data.Bifunctor (bimap)
 import Data.Lens ((^.))
 import Data.Maybe (Maybe(..), isJust)
 import Effect.Aff.Class (class MonadAff)
 import Halogen (ComponentHTML)
 import Halogen.Classes (flex, flexCol, fullHeight, group, maxH70p, minH0, overflowHidden, paddingX)
+import Halogen.Css (classNames)
 import Halogen.Extra (renderSubmodule)
 import Halogen.HTML (HTML, button, div, section, slot, text)
 import Halogen.HTML.Events (onClick)
@@ -54,7 +56,10 @@ render metadata state =
 
   warningsTitle = withCount "Warnings" $ state ^. _warnings
 
-  wrapBottomPanelContents panelView = BottomPanel.PanelAction <$> panelContents state metadata panelView
+  -- TODO: improve this wrapper helper
+  actionWrapper = BottomPanel.PanelAction
+
+  wrapBottomPanelContents panelView = bimap (map actionWrapper) actionWrapper $ panelContents state metadata panelView
 
 workspaceBlocks :: forall a b. HTML a b
 workspaceBlocks =
@@ -70,11 +75,13 @@ otherActions state =
     [ button
         [ onClick $ const $ Just ViewAsMarlowe
         , enabled hasCode
+        , classNames [ "btn" ]
         ]
         [ text "View as Marlowe" ]
     , button
         [ onClick $ const $ Just SendToSimulator
         , enabled (hasCode && not hasHoles)
+        , classNames [ "btn" ]
         ]
         [ text "Send To Simulator" ]
     ]

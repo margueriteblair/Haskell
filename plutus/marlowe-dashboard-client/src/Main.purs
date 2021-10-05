@@ -5,11 +5,12 @@ import AppM (runAppM)
 import Control.Coroutine (Consumer, Process, connect, consumer, runProcess)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
+import Effect.AVar as AVar
 import Effect.Aff (Aff, forkAff)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Effect.Unsafe (unsafePerformEffect)
-import Env (Env)
+import Env (DataProvider(..), Env)
 import Foreign.Generic (defaultOptions)
 import Halogen (Component, hoist)
 import Halogen.Aff (awaitBody, runHalogenAff)
@@ -19,44 +20,62 @@ import LocalStorage (RawStorageEvent)
 import LocalStorage as LocalStorage
 import MainFrame.State (mkMainFrame)
 import MainFrame.Types (Action(..), Msg(..), Query(..))
-import MainFrame.Types as MainFrame
 import Plutus.PAB.Webserver (SPParams_(SPParams_))
-import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient, CombinedWSStreamToServer)
+import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient)
 import Servant.PureScript.Settings (SPSettingsDecodeJson_(..), SPSettingsEncodeJson_(..), SPSettings_(..), defaultSettings)
+import Types (CombinedWSStreamToServer)
 import WebSocket.Support (WebSocketManager, mkWebSocketManager)
 import WebSocket.Support as WS
 
-environment :: Env
-environment =
-  { ajaxSettings: SPSettings_ (settings { decodeJson = decodeJson, encodeJson = encodeJson })
-  }
-  where
-  SPSettings_ settings = defaultSettings $ SPParams_ { baseURL: "/" }
+mkEnvironment :: Effect Env
+mkEnvironment = do
+  let
+    SPSettings_ settings = defaultSettings $ SPParams_ { baseURL: "/" }
 
-  jsonOptions = defaultOptions { unwrapSingleConstructors = true }
+    jsonOptions = defaultOptions { unwrapSingleConstructors = true }
 
-  decodeJson = SPSettingsDecodeJson_ jsonOptions
+    decodeJson = SPSettingsDecodeJson_ jsonOptions
 
-  encodeJson = SPSettingsEncodeJson_ jsonOptions
+    encodeJson = SPSettingsEncodeJson_ jsonOptions
+  contractStepCarouselSubscription <- AVar.empty
+  pure
+    { ajaxSettings: SPSettings_ (settings { decodeJson = decodeJson, encodeJson = encodeJson })
+    , contractStepCarouselSubscription
+    , dataProvider: LocalStorage
+    }
 
 main :: Effect Unit
 main = do
+  environment <- mkEnvironment
   let
-    mainFrame :: Component HTML MainFrame.Query MainFrame.Action MainFrame.Msg Aff
+    mainFrame :: Component HTML Query Action Msg Aff
     mainFrame = hoist (runAppM environment) mkMainFrame
   runHalogenAff do
     body <- awaitBody
     driver <- runUI mainFrame Init body
-    void $ forkAff $ runProcess watchLocalStorageProcess
-    wsManager :: WebSocketManager CombinedWSStreamToClient CombinedWSStreamToServer <- mkWebSocketManager
+    ---
     void
       $ forkAff
-      $ WS.runWebSocketManager (WS.URI "/ws") (\msg -> void $ driver.query $ ReceiveWebSocketMessage msg unit) wsManager
+      $ runProcess watchLocalStorageProcess -- do we need this?
+    ---
+    wsManager :: WebSocketManager CombinedWSStreamToClient CombinedWSStreamToServer <-
+      mkWebSocketManager
+    void
+      $ forkAff
+      $ WS.runWebSocketManager
+          (WS.URI "/ws")
+          (\msg -> void $ driver.query $ ReceiveWebSocketMessage msg unit)
+          wsManager
     driver.subscribe
       $ consumer
       $ case _ of
           (SendWebSocketMessage msg) -> do
             WS.managerWriteOutbound wsManager $ WS.SendMessage msg
+            pure Nothing
+          -- This handler allows us to call an action in the MainFrame from a child component
+          -- (more info in the MainFrameLoop capability)
+          (MainFrameActionMsg action) -> do
+            void $ driver.query $ MainFrameActionQuery action unit
             pure Nothing
 
 watchLocalStorageProcess :: Process Aff Unit

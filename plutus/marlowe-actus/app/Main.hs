@@ -1,34 +1,41 @@
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ViewPatterns        #-}
 
 module Main where
 
 import           Data.Aeson                                        (decode)
 import           Data.Int                                          (Int32)
 import           Data.String                                       (IsString (fromString))
-import           Data.Time.Calendar                                (showGregorian)
-import           Language.Marlowe.ACTUS.Analysis                   (sampleCashflows)
-import           Language.Marlowe.ACTUS.Definitions.BusinessEvents (RiskFactors (..))
+import           Data.Time                                         (LocalTime)
+import           Language.Marlowe.ACTUS.Analysis                   (genProjectedCashflows)
+import           Language.Marlowe.ACTUS.Definitions.BusinessEvents
 import           Language.Marlowe.ACTUS.Definitions.Schedule       (CashFlow (..))
 import           Language.R                                        (R)
 import qualified Language.R                                        as R
 import           Language.R.QQ
 
+riskFactors :: EventType -> LocalTime -> RiskFactors
+riskFactors _ _ =
+    RiskFactorsPoly
+        { o_rf_CURS = 1.0,
+          o_rf_RRMO = 1.0,
+          o_rf_SCMO = 1.0,
+          pp_payoff = 0.0
+        }
+
 get_dates :: String -> R s [String]
 get_dates terms = return $ case (decode $ fromString terms) of
-    Just terms' ->
-      let
-        cfs = sampleCashflows (\_ -> RiskFactors 1.0 1.0 1.0 0.0) terms'
-        date = showGregorian <$> cashCalculationDay <$> cfs
-        event = show <$> cashEvent <$> cfs
+    Just terms' -> let
+          cfs = genProjectedCashflows riskFactors terms'
+          date = show <$> cashCalculationDay <$> cfs
+          event = show <$> cashEvent <$> cfs
       in (\(d, e) -> d ++ " " ++ e) <$> (zip date event)
     Nothing -> []
 
-get_cfs :: String -> Double -> R s [Double]
-get_cfs terms rrmo = return $ case (decode $ fromString terms) of
-    Just terms' -> amount <$> sampleCashflows (\_ -> RiskFactors 1.0 rrmo 1.0 0.0) terms'
+get_cfs :: String -> R s [Double]
+get_cfs terms = return $ case (decode $ fromString terms) of
+    Just terms' -> amount <$> genProjectedCashflows riskFactors terms'
     Nothing     -> []
 
 r_shiny :: R s Int32
@@ -72,7 +79,7 @@ server <- function(input, output, session) {
       if (!is.null(session$userData$contract) && !is.null(input$ipnr)) {
         tryCatch ({
           x <- get_dates_hs(toString(input$contract))
-          y <- get_cfs_hs(toString(input$contract), as.double(input$ipnr))
+          y <- get_cfs_hs(toString(input$contract))
           text <- y %>%
             map(function(x) if (x > 0) paste("+", toString(x), sep = "") else toString(x))
 

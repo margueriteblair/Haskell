@@ -13,18 +13,22 @@ import           PlutusPrelude
 
 import           PlutusCore.Pretty.Classic
 import           PlutusCore.Pretty.PrettyConst
-import           PlutusCore.Universe
+
 import           UntypedPlutusCore.Core.Instance.Pretty.Classic ()
 import           UntypedPlutusCore.Core.Type
+
+import           Universe
 
 instance
         ( PrettyClassic name
         , GShow uni, Closed uni, uni `Everywhere` PrettyConst, Pretty fun
+        , Pretty ann
         ) => Pretty (Term name uni fun ann) where
     pretty = prettyClassicDef
 
 instance
         ( PrettyClassic name
         , GShow uni, Closed uni, uni `Everywhere` PrettyConst, Pretty fun
+        , Pretty ann
         ) => Pretty (Program name uni fun ann) where
     pretty = prettyClassicDef

@@ -35,14 +35,15 @@ import           PlutusTx.Prelude
 
 import           Plutus.V1.Ledger.Interval
 
-{-# ANN module ("HLint: ignore Redundant if" :: String) #-}
+{- HLINT ignore "Redundant if" -}
 
 -- | The slot number. This is a good proxy for time, since on the Cardano blockchain
 -- slots pass at a constant rate.
 newtype Slot = Slot { getSlot :: Integer }
-    deriving stock (Haskell.Eq, Haskell.Ord, Show, Generic)
+    deriving stock (Haskell.Eq, Haskell.Ord, Haskell.Show, Generic)
     deriving anyclass (FromJSON, FromJSONKey, ToJSON, ToJSONKey, NFData)
-    deriving newtype (Haskell.Num, AdditiveSemigroup, AdditiveMonoid, AdditiveGroup, Enum, Eq, Ord, Real, Integral, Serialise, Hashable, PlutusTx.IsData)
+    deriving newtype (AdditiveSemigroup, AdditiveMonoid, AdditiveGroup, Eq, Ord, Enum, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+    deriving newtype (Haskell.Num, Haskell.Enum, Haskell.Real, Haskell.Integral, Serialise, Hashable)
 
 makeLift ''Slot
 

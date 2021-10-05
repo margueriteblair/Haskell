@@ -1,12 +1,14 @@
-{ set-git-rev, haskell, makeWrapper, runCommand }:
+{ haskell, makeWrapper, runCommand }:
 let
-  web-ghc-server = set-git-rev haskell.packages.web-ghc.components.exes.web-ghc-server;
+  web-ghc-server = haskell.packages.web-ghc.components.exes.web-ghc-server;
 
   runtimeGhc = haskell.project.ghcWithPackages (ps: [
     ps.playground-common
-    ps.plutus-playground-server
-    ps.plutus-use-cases
     ps.marlowe
+    ps.plutus-core
+    ps.plutus-tx
+    ps.plutus-contract
+    ps.plutus-ledger
   ]);
 in
 runCommand "web-ghc" { buildInputs = [ makeWrapper ]; } ''

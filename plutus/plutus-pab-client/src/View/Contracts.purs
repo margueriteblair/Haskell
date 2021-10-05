@@ -4,39 +4,37 @@ import Prelude hiding (div)
 import Bootstrap (btn, btnBlock, btnPrimary, btnSmall, cardBody_, cardFooter_, cardHeader_, card_, col10_, col2_, col4_, nbsp, row_, tableBordered)
 import Bootstrap as Bootstrap
 import Clipboard (showShortCopyLong)
---import Data.Array (mapWithIndex, null)
-import Data.Array (null)
-import Data.Array as Array
+import Data.Array (mapWithIndex, null)
 import Data.Foldable.Extra (interleave)
 import Data.Lens (_1, view)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
---import Data.Tuple.Nested (type (/\), (/\))
-import Data.Tuple.Nested (type (/\))
-import Halogen.HTML (ClassName(..), HTML, br_, button, div, div_, h2_, h3_, table, text, th, thead_, tr_)
+import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested (type (/\), (/\))
+import Halogen.HTML (ClassName(..), HTML, br_, button, div, div_, h2_, h3_, table, text, th, thead_, tr_, td_, tbody_)
 import Halogen.HTML.Events (onClick)
 import Halogen.HTML.Properties (class_, classes, colSpan, disabled)
 import Icons (Icon(..), icon)
---import Plutus.Contract.Resumable (IterationID(..), Request(..), RequestID(..))
+import Plutus.Contract.Resumable (IterationID(..), Request(..), RequestID(..))
 import Network.StreamData as Stream
 import Playground.Lenses (_endpointDescription, _getEndpointDescription, _schema)
 import Playground.Types (_FunctionSchema)
-import Plutus.PAB.Effects.Contract.ContractExe (ContractExe)
-import Plutus.PAB.Events.Contract (ContractPABRequest)
-import Plutus.PAB.Events.ContractInstanceState (PartiallyDecodedResponse)
+import Plutus.PAB.Webserver.Types (ContractInstanceClientState)
 import Schema.Types (FormEvent)
 import Schema.View (actionArgumentForm)
-import Types (ContractStates, EndpointForm, HAction(..), WebStreamData, _contractPath, _hooks)
+import Types (ContractStates, EndpointForm, HAction(..), WebStreamData, _hooks, _csContractDefinition, _csCurrentState, _contractInstanceIdString)
 import Validation (_argument)
---import View.Pretty (pretty)
---import View.Utils (webStreamDataPane)
+import View.Pretty (pretty)
+import View.Utils (webStreamDataPane)
 import Wallet.Types (ContractInstanceId)
+import ContractExample (ExampleContracts)
 
 installedContractsPane ::
-  forall p.
+  forall p a.
+  Show a =>
   Boolean ->
-  Array ContractExe ->
-  HTML p HAction
+  Array a ->
+  HTML p (HAction a)
 installedContractsPane buttonsDisabled installedContracts =
   card_
     [ cardHeader_
@@ -51,10 +49,11 @@ installedContractsPane buttonsDisabled installedContracts =
     ]
 
 installedContractPane ::
-  forall p.
+  forall p a.
+  Show a =>
   Boolean ->
-  ContractExe ->
-  HTML p HAction
+  a ->
+  HTML p (HAction a)
 installedContractPane buttonsDisabled installedContract =
   row_
     [ col2_
@@ -65,71 +64,69 @@ installedContractPane buttonsDisabled installedContract =
             ]
             [ if buttonsDisabled then icon Spinner else text "Activate" ]
         ]
-    , col10_ [ text $ view _contractPath installedContract ]
+    , col10_ [ text $ show installedContract ]
     ]
 
 contractStatusesPane ::
-  forall p.
+  forall p a.
   ContractStates ->
-  HTML p HAction
+  HTML p (HAction a)
 contractStatusesPane contractStates =
   card_
     [ cardHeader_
         [ h2_ [ text "Active Contracts" ]
         ]
     , cardBody_
-        [ if null contractsWithRequests then
+        [ if Map.isEmpty contractsWithRequests then
             text "You do not have any active contracts."
           else
-            div_ (contractStatusPane <$> contractsWithRequests)
+            div_ (map (\(Tuple a b) -> contractStatusPane a b) $ Map.toUnfoldable contractsWithRequests)
         ]
     ]
   where
-  contractsWithRequests :: Array (WebStreamData (PartiallyDecodedResponse ContractPABRequest /\ Array EndpointForm))
-  contractsWithRequests = Array.filter hasActiveRequests $ Array.fromFoldable $ Map.values contractStates
+  contractsWithRequests :: ContractStates
+  contractsWithRequests = Map.filter hasActiveRequests contractStates
 
-  hasActiveRequests :: WebStreamData (PartiallyDecodedResponse ContractPABRequest /\ Array EndpointForm) -> Boolean
-  hasActiveRequests contractInstance = not $ null $ view (Stream._Success <<< _1 <<< _hooks) contractInstance
+  hasActiveRequests :: WebStreamData (ContractInstanceClientState ExampleContracts /\ Array EndpointForm) -> Boolean
+  hasActiveRequests contractInstance = not $ null $ view (Stream._Success <<< _1 <<< _csCurrentState <<< _hooks) contractInstance
 
 contractStatusPane ::
-  forall p.
-  WebStreamData (PartiallyDecodedResponse ContractPABRequest /\ Array EndpointForm) ->
-  HTML p HAction
-contractStatusPane contractState = div [ class_ $ ClassName "contract-status" ] []
+  forall p a.
+  ContractInstanceId ->
+  WebStreamData (ContractInstanceClientState ExampleContracts /\ Array EndpointForm) ->
+  HTML p (HAction a)
+contractStatusPane contractInstanceId contractState =
+  div [ class_ $ ClassName "contract-status" ]
+    $ webStreamDataPane
+        ( \(contractInstance /\ endpointForms) ->
+            div_
+              [ contractRequestView contractInstanceId contractInstance
+              , div_
+                  [ row_
+                      ( mapWithIndex
+                          (\index endpointForm -> actionCard contractInstanceId (ChangeContractEndpointCall contractInstanceId index) endpointForm)
+                          endpointForms
+                      )
+                  ]
+              ]
+        )
+        contractState
 
--- $ webStreamDataPane
---    ( \(contractInstance /\ endpointForms) ->
---        let
---          contractInstanceId :: ContractInstanceId
---          contractInstanceId = view _csContract contractInstance
---        in
---          div_
---            [ contractRequestView contractInstance
---            , div_
---                [ row_
---                    ( mapWithIndex
---                        (\index endpointForm -> actionCard contractInstanceId (ChangeContractEndpointCall contractInstanceId index) endpointForm)
---                        endpointForms
---                    )
---                ]
---            ]
---    )
---    contractState
-contractRequestView :: forall p. PartiallyDecodedResponse ContractPABRequest -> HTML p HAction
-contractRequestView contractInstance =
+contractRequestView :: forall p a. ContractInstanceId -> ContractInstanceClientState ExampleContracts -> HTML p (HAction a)
+contractRequestView contractInstanceId contractInstance =
   table [ classes [ Bootstrap.table, tableBordered ] ]
     [ thead_
         [ tr_
             [ th [ colSpan 3 ]
                 [ h3_
                     [ ClipboardAction
-                        <$> showShortCopyLong "" --contractInstanceIdString
+                        <$> showShortCopyLong contractInstanceIdString
                             ( Just
-                                [ text "" --pretty $ view (_csContractDefinition) contractInstance
+                                [ pretty $ view _csContractDefinition contractInstance
                                 , nbsp
                                 , text "-"
                                 , nbsp
-                                , text "" --contractInstanceIdString
+                                , text contractInstanceIdString
                                 ]
                             )
                     ]
@@ -141,24 +138,26 @@ contractRequestView contractInstance =
             , th [ class_ $ ClassName "request" ] [ text "Request" ]
             ]
         ]
-    --, tbody_ (requestRow <$> requests)
+    , tbody_ (requestRow <$> requests)
     ]
+  where
+  contractInstanceIdString = view _contractInstanceIdString contractInstanceId
 
---where
---contractInstanceIdString = view (_csContract <<< _contractInstanceIdString) contractInstance
---requests = view (_csCurrentState <<< _hooks) contractInstance
---requestRow (Request { itID: IterationID itID, rqID: RequestID rqID, rqRequest }) =
---  tr_
---    [ td_ [ text $ show itID ]
---    , td_ [ text $ show rqID ]
---    , td_ [ pretty rqRequest ]
---    ]
-actionCard :: forall p. ContractInstanceId -> (FormEvent -> HAction) -> EndpointForm -> HTML p HAction
+  requests = view (_csCurrentState <<< _hooks) contractInstance
+
+  requestRow (Request { itID: IterationID itID, rqID: RequestID rqID, rqRequest }) =
+    tr_
+      [ td_ [ text $ show itID ]
+      , td_ [ text $ show rqID ]
+      , td_ [ pretty rqRequest ]
+      ]
+
+actionCard :: forall p a. ContractInstanceId -> (FormEvent -> (HAction a)) -> EndpointForm -> HTML p (HAction a)
 actionCard contractInstanceId wrapper endpointForm =
   col4_
     [ card_
         [ cardHeader_ [ h2_ [ text $ view (_schema <<< _FunctionSchema <<< _endpointDescription <<< _getEndpointDescription) endpointForm ] ]
-        , cardBody_ [ actionArgumentForm wrapper (view _argument endpointForm) ]
+        , cardBody_ [ actionArgumentForm 0 wrapper (view _argument endpointForm) ]
         , cardFooter_
             [ button
                 [ classes [ btn, btnSmall, btnPrimary ]

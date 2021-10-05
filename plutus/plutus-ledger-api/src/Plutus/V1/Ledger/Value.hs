@@ -11,7 +11,6 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 -- Prevent unboxing, which the plugin can't deal with
-{-# OPTIONS_GHC -fno-strictness #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 {-# OPTIONS_GHC -fno-spec-constr #-}
 {-# OPTIONS_GHC -fno-specialise #-}
@@ -27,6 +26,11 @@ module Plutus.V1.Ledger.Value(
     , TokenName(..)
     , tokenName
     , toString
+    -- * Asset classes
+    , AssetClass(..)
+    , assetClass
+    , assetClassValue
+    , assetClassValueOf
     -- ** Value
     , Value(..)
     , singleton
@@ -53,6 +57,7 @@ import           Control.Monad                    (guard)
 import           Data.Aeson                       (FromJSON, FromJSONKey, ToJSON, ToJSONKey, (.:))
 import qualified Data.Aeson                       as JSON
 import qualified Data.Aeson.Extras                as JSON
+import qualified Data.ByteString                  as BS
 import           Data.Hashable                    (Hashable)
 import qualified Data.List                        (sortBy)
 import           Data.String                      (IsString (fromString))
@@ -68,16 +73,15 @@ import           Plutus.V1.Ledger.Orphans         ()
 import           Plutus.V1.Ledger.Scripts
 import qualified PlutusTx                         as PlutusTx
 import qualified PlutusTx.AssocMap                as Map
-import qualified PlutusTx.Builtins                as Builtins
 import           PlutusTx.Lift                    (makeLift)
 import qualified PlutusTx.Ord                     as Ord
-import           PlutusTx.Prelude
+import           PlutusTx.Prelude                 as PlutusTx
 import           PlutusTx.These
 
-newtype CurrencySymbol = CurrencySymbol { unCurrencySymbol :: Builtins.ByteString }
-    deriving (IsString, Show, Serialise, Pretty) via LedgerBytes
+newtype CurrencySymbol = CurrencySymbol { unCurrencySymbol :: PlutusTx.BuiltinByteString }
+    deriving (IsString, Haskell.Show, Serialise, Pretty) via LedgerBytes
     deriving stock (Generic)
-    deriving newtype (Haskell.Eq, Haskell.Ord, Eq, Ord, PlutusTx.IsData)
+    deriving newtype (Haskell.Eq, Haskell.Ord, Eq, Ord, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
     deriving anyclass (Hashable, ToJSONKey, FromJSONKey,  NFData)
 
 instance ToJSON CurrencySymbol where
@@ -86,6 +90,7 @@ instance ToJSON CurrencySymbol where
       [ ( "unCurrencySymbol"
         , JSON.String .
           JSON.encodeByteString .
+          PlutusTx.fromBuiltin .
           unCurrencySymbol $
           currencySymbol)
       ]
@@ -95,51 +100,57 @@ instance FromJSON CurrencySymbol where
     JSON.withObject "CurrencySymbol" $ \object -> do
       raw <- object .: "unCurrencySymbol"
       bytes <- JSON.decodeByteString raw
-      Haskell.pure $ CurrencySymbol bytes
+      Haskell.pure $ CurrencySymbol $ PlutusTx.toBuiltin bytes
 
 makeLift ''CurrencySymbol
 
 {-# INLINABLE mpsSymbol #-}
 -- | The currency symbol of a monetay policy hash
-mpsSymbol :: MonetaryPolicyHash -> CurrencySymbol
-mpsSymbol (MonetaryPolicyHash h) = CurrencySymbol h
+mpsSymbol :: MintingPolicyHash -> CurrencySymbol
+mpsSymbol (MintingPolicyHash h) = CurrencySymbol h
 
 {-# INLINABLE currencyMPSHash #-}
--- | The monetary policy hash of a currency symbol
-currencyMPSHash :: CurrencySymbol -> MonetaryPolicyHash
-currencyMPSHash (CurrencySymbol h) = MonetaryPolicyHash h
+-- | The minting policy hash of a currency symbol
+currencyMPSHash :: CurrencySymbol -> MintingPolicyHash
+currencyMPSHash (CurrencySymbol h) = MintingPolicyHash h
 
 {-# INLINABLE currencySymbol #-}
-currencySymbol :: ByteString -> CurrencySymbol
-currencySymbol = CurrencySymbol
+-- | Creates `CurrencySymbol` from raw `ByteString`.
+currencySymbol :: BS.ByteString -> CurrencySymbol
+currencySymbol = CurrencySymbol . PlutusTx.toBuiltin
 
 -- | ByteString of a name of a token, shown as UTF-8 string when possible
-newtype TokenName = TokenName { unTokenName :: Builtins.ByteString }
+newtype TokenName = TokenName { unTokenName :: PlutusTx.BuiltinByteString }
     deriving (Serialise) via LedgerBytes
     deriving stock (Generic)
-    deriving newtype (Haskell.Eq, Haskell.Ord, Eq, Ord, PlutusTx.IsData)
+    deriving newtype (Haskell.Eq, Haskell.Ord, Eq, Ord, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
     deriving anyclass (Hashable, NFData)
     deriving Pretty via (PrettyShow TokenName)
 
 instance IsString TokenName where
     fromString = fromText . Text.pack
 
+{-# INLINABLE tokenName #-}
+-- | Creates `TokenName` from raw `ByteString`.
+tokenName :: BS.ByteString -> TokenName
+tokenName = TokenName . PlutusTx.toBuiltin
+
 fromText :: Text -> TokenName
-fromText = TokenName . E.encodeUtf8
+fromText = tokenName . E.encodeUtf8
 
-fromTokenName :: (Builtins.ByteString -> r) -> (Text -> r) -> TokenName -> r
-fromTokenName handleBytestring handleText (TokenName bs) = either (\_ -> handleBytestring bs) handleText $ E.decodeUtf8' bs
+fromTokenName :: (BS.ByteString -> r) -> (Text -> r) -> TokenName -> r
+fromTokenName handleBytestring handleText (TokenName bs) = either (\_ -> handleBytestring $ PlutusTx.fromBuiltin bs) handleText $ E.decodeUtf8' (PlutusTx.fromBuiltin bs)
 
-asBase16 :: Builtins.ByteString -> Text
+asBase16 :: BS.ByteString -> Text
 asBase16 bs = Text.concat ["0x", JSON.encodeByteString bs]
 
 quoted :: Text -> Text
 quoted s = Text.concat ["\"", s, "\""]
 
-toString :: TokenName -> String
+toString :: TokenName -> Haskell.String
 toString = Text.unpack . fromTokenName asBase16 id
 
-instance Show TokenName where
+instance Haskell.Show TokenName where
     show = Text.unpack . fromTokenName asBase16 quoted
 
 {- note [Roundtripping token names]
@@ -164,15 +175,24 @@ instance FromJSON TokenName where
         fromJSONText raw
         where
             fromJSONText t = case Text.take 3 t of
-                "\NUL0x"       -> either fail (Haskell.pure . TokenName) . JSON.tryDecode . Text.drop 3 $ t
+                "\NUL0x"       -> either Haskell.fail (Haskell.pure . tokenName) . JSON.tryDecode . Text.drop 3 $ t
                 "\NUL\NUL\NUL" -> Haskell.pure . fromText . Text.drop 2 $ t
                 _              -> Haskell.pure . fromText $ t
 
 makeLift ''TokenName
 
-{-# INLINABLE tokenName #-}
-tokenName :: ByteString -> TokenName
-tokenName = TokenName
+-- | An asset class, identified by currency symbol and token name.
+newtype AssetClass = AssetClass { unAssetClass :: (CurrencySymbol, TokenName) }
+    deriving stock (Generic)
+    deriving newtype (Haskell.Eq, Haskell.Ord, Haskell.Show, Eq, Ord, Serialise, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+    deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
+    deriving Pretty via (PrettyShow (CurrencySymbol, TokenName))
+
+{-# INLINABLE assetClass #-}
+assetClass :: CurrencySymbol -> TokenName -> AssetClass
+assetClass s t = AssetClass (s, t)
+
+makeLift ''AssetClass
 
 -- | A cryptocurrency value. This is a map from 'CurrencySymbol's to a
 -- quantity of that currency.
@@ -192,16 +212,16 @@ tokenName = TokenName
 newtype Value = Value { getValue :: Map.Map CurrencySymbol (Map.Map TokenName Integer) }
     deriving stock (Generic)
     deriving anyclass (ToJSON, FromJSON, Hashable, NFData)
-    deriving newtype (Serialise, PlutusTx.IsData)
+    deriving newtype (Serialise, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
     deriving Pretty via (PrettyShow Value)
 
-instance Show Value where
+instance Haskell.Show Value where
     showsPrec d v =
-        showParen (d Haskell.== 11) $
-            showString "Value " . (showParen True (showsMap (showPair (showsMap shows)) rep))
+        Haskell.showParen (d Haskell.== 11) $
+            Haskell.showString "Value " . (Haskell.showParen True (showsMap (showPair (showsMap Haskell.shows)) rep))
         where Value rep = normalizeValue v
-              showsMap sh m = showString "Map " . showList__ sh (Map.toList m)
-              showPair s (x,y) = showParen True $ shows x . showString "," . s y
+              showsMap sh m = Haskell.showString "Map " . showList__ sh (Map.toList m)
+              showPair s (x,y) = Haskell.showParen True $ Haskell.shows x . Haskell.showString "," . s y
 
 normalizeValue :: Value -> Value
 normalizeValue = Value . Map.fromList . sort . filterRange (/=Map.empty)
@@ -305,6 +325,16 @@ symbols (Value mp) = Map.keys mp
 singleton :: CurrencySymbol -> TokenName -> Integer -> Value
 singleton c tn i = Value (Map.singleton c (Map.singleton tn i))
 
+{-# INLINABLE assetClassValue #-}
+-- | A 'Value' containing the given amount of the asset class.
+assetClassValue :: AssetClass -> Integer -> Value
+assetClassValue (AssetClass (c, t)) i = singleton c t i
+
+{-# INLINABLE assetClassValueOf #-}
+-- | Get the quantity of the given 'AssetClass' class in the 'Value'.
+assetClassValueOf :: Value -> AssetClass -> Integer
+assetClassValueOf v (AssetClass (c, t)) = valueOf v c t
+
 {-# INLINABLE unionVal #-}
 -- | Combine two 'Value' maps
 unionVal :: Value -> Value -> Map.Map CurrencySymbol (Map.Map TokenName (These Integer Integer))
@@ -401,6 +431,7 @@ eq = checkBinRel (==)
 --
 --   @negate (fst (split a)) `plus` (snd (split a)) == a@
 --
+{-# INLINABLE split #-}
 split :: Value -> (Value, Value)
 split (Value mp) = (negate (Value neg), Value pos) where
   (neg, pos) = Map.mapThese splitIntl mp

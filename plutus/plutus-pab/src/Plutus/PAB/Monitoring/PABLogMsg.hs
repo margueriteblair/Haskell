@@ -11,97 +11,77 @@
 -- | PAB Log messages and instances
 module Plutus.PAB.Monitoring.PABLogMsg(
     PABLogMsg(..),
-    ContractExeLogMsg(..),
     ChainIndexServerMsg,
-    MetadataLogMessage,
     WalletMsg,
     MockServerLogMsg,
     AppMsg(..),
     CoreMsg(..),
     PABMultiAgentMsg(..),
-    ContractEffectMsg(..)
+    RequestSize(..)
     ) where
 
-import           Data.Aeson                              (FromJSON, ToJSON)
-import qualified Data.Aeson                              as JSON
-import           Data.Text                               (Text)
-import           Data.Text.Prettyprint.Doc               (Pretty (..), colon, (<+>))
-import           GHC.Generics                            (Generic)
+import           Data.Aeson                       (FromJSON, ToJSON, Value)
+import           Data.Text                        (Text)
+import           Data.Text.Prettyprint.Doc        (Pretty (..), colon, viaShow, (<+>))
+import           GHC.Generics                     (Generic)
 
-import           Cardano.BM.Data.Tracer                  (ToObject (..), TracingVerbosity (..))
-import           Cardano.BM.Data.Tracer.Extras           (StructuredLog, Tagged (..), mkObjectStr)
-import           Cardano.ChainIndex.Types                (ChainIndexServerMsg)
-import           Cardano.Metadata.Types                  (MetadataLogMessage)
-import           Cardano.Node.Types                      (MockServerLogMsg)
-import           Cardano.Wallet.Types                    (WalletMsg)
-import           Data.Aeson.Text                         (encodeToLazyText)
-import qualified Data.Text                               as T
-import           Plutus.Contract.Resumable               (Response)
-import           Plutus.Contract.State                   (ContractRequest)
-import           Plutus.PAB.Core.ContractInstance        (ContractInstanceMsg (..))
-import           Plutus.PAB.Effects.Contract             (PABContract (..))
-import           Plutus.PAB.Effects.Contract.ContractExe (ContractExe, ContractExeLogMsg (..))
-import           Plutus.PAB.Effects.ContractRuntime      (ContractRuntimeMsg)
-import           Plutus.PAB.Events.Contract              (ContractInstanceId, ContractPABRequest)
-import           Plutus.PAB.Events.ContractInstanceState (PartiallyDecodedResponse)
-import           Plutus.PAB.Instances                    ()
-import           Plutus.PAB.Monitoring.MonadLoggerBridge (MonadLoggerMsg (..))
-import           Plutus.PAB.ParseStringifiedJSON         (UnStringifyJSONLog (..))
-import           Wallet.Emulator.MultiAgent              (EmulatorEvent)
-import           Wallet.Emulator.Wallet                  (WalletEvent (..))
+import           Cardano.BM.Data.Tracer           (ToObject (..), TracingVerbosity (..))
+import           Cardano.BM.Data.Tracer.Extras    (StructuredLog, Tagged (..), mkObjectStr)
+import           Cardano.ChainIndex.Types         (ChainIndexServerMsg)
+import           Cardano.Node.Types               (MockServerLogMsg)
+import           Cardano.Wallet.Mock.Types        (WalletMsg)
+import           Data.Aeson.Text                  (encodeToLazyText)
+import qualified Data.Text                        as T
+import           Plutus.Contract.Effects          (PABReq, PABResp)
+import           Plutus.Contract.Resumable        (Response)
+import           Plutus.Contract.State            (ContractResponse)
+import           Plutus.PAB.Core.ContractInstance (ContractInstanceMsg (..))
+import           Plutus.PAB.Effects.Contract      (PABContract (..))
+import           Plutus.PAB.Events.Contract       (ContractInstanceId)
+import           Plutus.PAB.Instances             ()
+import           Wallet.Emulator.LogMessages      (TxBalanceMsg)
+import           Wallet.Emulator.MultiAgent       (EmulatorEvent)
+import           Wallet.Emulator.Wallet           (Wallet)
 
 data AppMsg t =
-    InstalledContractsMsg
-    | ActiveContractsMsg
+    ActiveContractsMsg
     | ContractHistoryMsg
-    | PABMsg PABLogMsg
-    | InstalledContract Text
+    | PABMsg (PABLogMsg t)
+    | AvailableContract Text
     | ContractInstances (ContractDef t) [ContractInstanceId]
-    | ContractHistoryItem ContractInstanceId (Response JSON.Value)
+    | ContractHistoryItem ContractInstanceId (Response PABResp)
     deriving stock (Generic)
 
 deriving stock instance (Show (ContractDef t)) => Show (AppMsg t)
 deriving anyclass instance (ToJSON (ContractDef t)) => ToJSON (AppMsg t)
 deriving anyclass instance (FromJSON (ContractDef t)) => FromJSON (AppMsg t)
 
-instance Pretty (ContractDef t) => Pretty (AppMsg t) where
+instance (Pretty (ContractDef t)) => Pretty (AppMsg t) where
     pretty = \case
-        InstalledContractsMsg            -> "Installed contracts"
         ActiveContractsMsg               -> "Active contracts"
         ContractHistoryMsg               -> "Contract history"
         PABMsg m                         -> pretty m
-        InstalledContract t              -> pretty t
+        AvailableContract t              -> pretty t
         ContractInstances t s            -> pretty t <+> pretty s
         ContractHistoryItem instanceId s -> pretty instanceId <> colon <+> pretty (fmap encodeToLazyText s)
 
-data PABLogMsg =
-    SContractExeLogMsg ContractExeLogMsg
-    | SContractInstanceMsg (ContractInstanceMsg ContractExe)
-    | SCoreMsg (CoreMsg ContractExe)
-    | SUnstringifyJSON UnStringifyJSONLog
-    | SWalletEvent Wallet.Emulator.Wallet.WalletEvent
-    | SLoggerBridge MonadLoggerMsg
-    | SContractRuntimeMsg ContractRuntimeMsg
+data PABLogMsg t =
+    SCoreMsg (CoreMsg t)
     | SChainIndexServerMsg ChainIndexServerMsg
     | SWalletMsg WalletMsg
-    | SMetaDataLogMsg MetadataLogMessage
     | SMockserverLogMsg MockServerLogMsg
-    | SMultiAgent (PABMultiAgentMsg ContractExe)
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+    | SMultiAgent (PABMultiAgentMsg t)
+    deriving stock (Generic)
 
-instance Pretty PABLogMsg where
+deriving stock instance (Show (ContractDef t)) => Show (PABLogMsg t)
+deriving anyclass instance (ToJSON (ContractDef t)) => ToJSON (PABLogMsg t)
+deriving anyclass instance (FromJSON (ContractDef t)) => FromJSON (PABLogMsg t)
+
+instance Pretty (ContractDef t) => Pretty (PABLogMsg t) where
     pretty = \case
-        SContractExeLogMsg m   -> pretty m
-        SContractInstanceMsg m -> pretty m
         SCoreMsg m             -> pretty m
-        SUnstringifyJSON m     -> pretty m
-        SWalletEvent w         -> pretty w
-        SLoggerBridge m        -> pretty m
-        SContractRuntimeMsg m  -> pretty m
         SChainIndexServerMsg m -> pretty m
         SWalletMsg m           -> pretty m
-        SMetaDataLogMsg m      -> pretty m
         SMockserverLogMsg m    -> pretty m
         SMultiAgent m          -> pretty m
 
@@ -120,17 +100,15 @@ In the definitions below, every object produced by 'toObject' has a field
 
 -}
 
-instance StructuredLog (ContractDef t) => ToObject (AppMsg t) where
+instance (ToJSON (ContractDef t), StructuredLog (ContractDef t)) => ToObject (AppMsg t) where
     toObject v = \case
-        InstalledContractsMsg ->
-            mkObjectStr "Listing installed contracts" ()
         ActiveContractsMsg ->
             mkObjectStr "Listing active contract instances" ()
         ContractHistoryMsg ->
             mkObjectStr "Showing contract history" ()
         PABMsg m -> toObject v m
-        InstalledContract t ->
-            mkObjectStr "Installed contract" t
+        AvailableContract t ->
+            mkObjectStr "Available contract" t
         ContractInstances exe ids ->
             mkObjectStr
                 "Active instances for contract"
@@ -141,106 +119,90 @@ instance StructuredLog (ContractDef t) => ToObject (AppMsg t) where
                     MaximalVerbosity -> Left (i, state)
                     _                -> Right i
 
-instance ToObject PABLogMsg where
+instance (StructuredLog (ContractDef t), ToJSON (ContractDef t)) => ToObject (PABLogMsg t) where
     toObject v = \case
-        SContractExeLogMsg m   -> toObject v m
-        SContractInstanceMsg m -> toObject v m
         SCoreMsg m             -> toObject v m
-        SUnstringifyJSON m     -> toObject v m
-        SWalletEvent e         -> toObject v e
-        SLoggerBridge e        -> toObject v e
-        SContractRuntimeMsg e  -> toObject v e
         SChainIndexServerMsg m -> toObject v m
         SWalletMsg m           -> toObject v m
-        SMetaDataLogMsg m      -> toObject v m
         SMockserverLogMsg m    -> toObject v m
         SMultiAgent m          -> toObject v m
 
 -- | FIXME: Redundant?
 data PABMultiAgentMsg t =
     EmulatorMsg EmulatorEvent
-    | ContractMsg ContractEffectMsg
-    | MetadataLog MetadataLogMessage
-    | ChainIndexServerLog ChainIndexServerMsg
     | ContractInstanceLog (ContractInstanceMsg t)
-    | CoreLog (CoreMsg t)
-    | RuntimeLog ContractRuntimeMsg
     | UserLog T.Text
+    | SqlLog String
+    | PABStateRestored Int
+    | RestoringPABState
     | StartingPABBackendServer Int
-    | StartingMetadataServer Int
+    | WalletBalancingMsg Wallet TxBalanceMsg
     deriving stock Generic
 
 instance (StructuredLog (ContractDef t), ToJSON (ContractDef t)) => ToObject (PABMultiAgentMsg t) where
     toObject v = \case
         EmulatorMsg e              -> mkObjectStr "emulator message" (Tagged @"payload" e)
-        ContractMsg e              -> mkObjectStr "contract message" (Tagged @"payload" e)
-        MetadataLog m              -> toObject v m
-        ChainIndexServerLog m      -> toObject v m
         ContractInstanceLog m      -> toObject v m
-        CoreLog m                  -> toObject v m
-        RuntimeLog m               -> toObject v m
         UserLog t                  -> toObject v t
+        SqlLog s                   -> toObject v s
+        RestoringPABState          -> mkObjectStr "Restoring PAB state ..." ()
+        PABStateRestored n         -> mkObjectStr ( "PAB state restored with "
+                                                 <> T.pack (show n)
+                                                 <> " contract instance(s)."
+                                                  ) ()
         StartingPABBackendServer i -> mkObjectStr "starting backend server" (Tagged @"port" i)
-        StartingMetadataServer i   -> mkObjectStr "starting backend server" (Tagged @"port" i)
+        WalletBalancingMsg w m     -> mkObjectStr "balancing" (Tagged @"wallet" w, Tagged @"message" m)
 
-deriving stock instance (Show t, Show (ContractDef t)) => Show (PABMultiAgentMsg t)
-deriving anyclass instance (ToJSON t, ToJSON (ContractDef t)) => ToJSON (PABMultiAgentMsg t)
-deriving anyclass instance (FromJSON t, FromJSON (ContractDef t)) => FromJSON (PABMultiAgentMsg t)
+deriving stock instance (Show (ContractDef t)) => Show (PABMultiAgentMsg t)
+deriving anyclass instance (ToJSON (ContractDef t)) => ToJSON (PABMultiAgentMsg t)
+deriving anyclass instance (FromJSON (ContractDef t)) => FromJSON (PABMultiAgentMsg t)
 
 instance Pretty (ContractDef t) => Pretty (PABMultiAgentMsg t) where
     pretty = \case
         EmulatorMsg m         -> pretty m
-        ContractMsg m         -> pretty m
-        MetadataLog m         -> pretty m
-        ChainIndexServerLog m -> pretty m
         ContractInstanceLog m -> pretty m
-        CoreLog m             -> pretty m
-        RuntimeLog m          -> pretty m
         UserLog m             -> pretty m
+        SqlLog m              -> pretty m
+        RestoringPABState     -> "Restoring PAB state ..."
+        PABStateRestored 0    -> "No constract instance were restored in the PAB state."
+        PABStateRestored 1    -> "PAB state restored with 1 contract instance."
+        PABStateRestored n    -> "PAB state restored with"
+                              <+> pretty n
+                              <+> "contract instances."
         StartingPABBackendServer port ->
             "Starting PAB backend server on port:" <+> pretty port
-        StartingMetadataServer port ->
-            "Starting metadata server on port:" <+> pretty port
+        WalletBalancingMsg w m -> pretty w <> colon <+> pretty m
 
 data CoreMsg t =
-    Installing (ContractDef t)
-    | Installed
-    | FindingContract ContractInstanceId
-    | FoundContract (Maybe (PartiallyDecodedResponse ContractPABRequest))
+    FindingContract ContractInstanceId
+    | FoundContract (Maybe (ContractResponse Value Value PABResp PABReq))
+    | ConnectingToAlonzoNode
     deriving stock Generic
 
-deriving stock instance (Show t, Show (ContractDef t)) => Show (CoreMsg t)
-deriving anyclass instance (ToJSON t, ToJSON (ContractDef t)) => ToJSON (CoreMsg t)
-deriving anyclass instance (FromJSON t, FromJSON (ContractDef t)) => FromJSON (CoreMsg t)
+deriving stock instance (Show (ContractDef t)) => Show (CoreMsg t)
+deriving anyclass instance (ToJSON (ContractDef t)) => ToJSON (CoreMsg t)
+deriving anyclass instance (FromJSON (ContractDef t)) => FromJSON (CoreMsg t)
 
 instance Pretty (ContractDef t) => Pretty (CoreMsg t) where
     pretty = \case
-        Installing d      -> "Installing" <+> pretty d
-        Installed         -> "Installed"
-        FindingContract i -> "Finding contract" <+> pretty i
-        FoundContract c   -> "Found contract" <+> pretty c
+        FindingContract i      -> "Finding contract" <+> pretty i
+        FoundContract c        -> "Found contract" <+> viaShow c
+        ConnectingToAlonzoNode -> "Connecting to Alonzo node"
 
 instance (StructuredLog (ContractDef t), ToJSON (ContractDef t)) => ToObject (CoreMsg t) where
     toObject v = \case
-        Installing t ->
-            mkObjectStr "installing contract" t
-        Installed ->
-            mkObjectStr "contract installed" ()
         FindingContract instanceID ->
             mkObjectStr "finding contract instance" instanceID
         FoundContract state ->
             mkObjectStr "found contract" $
                 case v of
-                    MaximalVerbosity -> Left state
+                    MaximalVerbosity -> Left (Tagged @"contract" state)
                     _                -> Right ()
+        ConnectingToAlonzoNode -> mkObjectStr "Connecting to Alonzo node" ()
 
-data ContractEffectMsg =
-    SendContractRequest (ContractRequest JSON.Value)
-    | ReceiveContractResponse (PartiallyDecodedResponse ContractPABRequest)
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+newtype RequestSize = RequestSize Int
+    deriving stock (Show)
+    deriving newtype (ToJSON, FromJSON)
 
-instance Pretty ContractEffectMsg where
-    pretty = \case
-        SendContractRequest vl      -> "Request:" <+> pretty vl
-        ReceiveContractResponse rsp -> "Response:" <+> pretty rsp
+instance Pretty RequestSize where
+    pretty (RequestSize i) = pretty i <+> "bytes"

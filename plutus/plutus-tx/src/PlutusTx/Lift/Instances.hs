@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -13,6 +15,7 @@ module PlutusTx.Lift.Instances () where
 
 import qualified PlutusCore          as PLC
 
+import           PlutusCore.Data
 import           PlutusTx.Builtins
 import           PlutusTx.Lift.Class
 
@@ -20,7 +23,14 @@ import           PlutusIR
 import           PlutusIR.MkPir
 
 import qualified Data.ByteString     as BS
+import qualified Data.Kind           as GHC
 import           Data.Proxy
+import qualified Data.Text           as Text
+
+import           GHC.TypeLits        (ErrorMessage (..), TypeError)
+
+-- We do not use qualified import because the whole module contains off-chain code
+import           Prelude             as Haskell
 
 -- Derived instances
 
@@ -52,14 +62,22 @@ instance Typeable uni (->) where
 -- Primitives
 
 typeRepBuiltin
-    :: forall a uni fun. uni `PLC.Includes` a
+    :: forall (a :: GHC.Type) uni fun. uni `PLC.Includes` a
     => Proxy a -> RTCompile uni fun (Type TyName uni ())
-typeRepBuiltin (_ :: Proxy a) = pure $ mkTyBuiltin @a ()
+typeRepBuiltin (_ :: Proxy a) = pure $ mkTyBuiltin @_ @a ()
 
 liftBuiltin
     :: forall a uni fun. uni `PLC.Includes` a
     => a -> RTCompile uni fun (Term TyName Name uni fun ())
 liftBuiltin = pure . mkConstant ()
+
+instance (TypeError ('Text "Int is not supported, use Integer instead"))
+    => Typeable uni Int where
+    typeRep = Haskell.error "unsupported"
+
+instance (TypeError ('Text "Int is not supported, use Integer instead"))
+    => Lift uni Int where
+    lift = Haskell.error "unsupported"
 
 instance uni `PLC.Includes` Integer => Typeable uni Integer where
     typeRep = typeRepBuiltin
@@ -72,6 +90,24 @@ instance uni `PLC.Includes` BS.ByteString => Typeable uni BS.ByteString where
 
 instance uni `PLC.Includes` BS.ByteString => Lift uni BS.ByteString where
     lift = liftBuiltin
+
+instance uni `PLC.Includes` Data => Typeable uni BuiltinData where
+    typeRep _ = typeRepBuiltin (Proxy @Data)
+
+instance uni `PLC.Includes` Data => Lift uni BuiltinData where
+    lift d = liftBuiltin (builtinDataToData d)
+
+instance uni `PLC.Includes` BS.ByteString => Typeable uni BuiltinByteString where
+    typeRep _proxyPByteString = typeRepBuiltin (Proxy @BS.ByteString)
+
+instance uni `PLC.Includes` BS.ByteString => Lift uni BuiltinByteString where
+    lift b = liftBuiltin $ fromBuiltin b
+
+instance uni `PLC.Includes` Text.Text => Typeable uni BuiltinString where
+    typeRep _proxyPByteString = typeRepBuiltin (Proxy @Text.Text)
+
+instance uni `PLC.Includes` Text.Text => Lift uni BuiltinString where
+    lift b = liftBuiltin $ fromBuiltin b
 
 -- Standard types
 -- These need to be in a separate file for TH staging reasons

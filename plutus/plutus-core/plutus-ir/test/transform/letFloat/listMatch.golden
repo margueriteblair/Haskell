@@ -8,11 +8,12 @@
         (tyvardecl List (fun (type) (type)))
         (tyvardecl a (type))
         match_List
-        (vardecl Nil [List a]) (vardecl Cons (fun a (fun [List a] [List a])))
+        (vardecl Nil [ List a ])
+        (vardecl Cons (fun a (fun [ List a ] [ List a ])))
       )
     )
     (let
-      (rec)
+      (nonrec)
       (termbind
         (strict)
         (vardecl j (con integer))
@@ -32,7 +33,7 @@
         (lam
           head
           (all a (type) (fun a a))
-          (lam tail [List (all a (type) (fun a a))] head)
+          (lam tail [ List (all a (type) (fun a a)) ] head)
         )
       ]
     )

@@ -1,28 +1,34 @@
 module MainFrame.View where
 
 import Prelude hiding (div)
+import Dashboard.View (dashboardCard, dashboardScreen)
 import Data.Either (Either(..))
-import Data.Lens (view)
+import Data.Lens (view, (^.))
 import Effect.Aff.Class (class MonadAff)
 import Halogen (ComponentHTML)
-import MainFrame.Lenses (_newWalletContractId, _newWalletNickname, _remoteDataPubKey, _templates, _subState, _wallets)
+import Halogen.Css (classNames)
+import Halogen.Extra (renderSubmodule)
+import Halogen.HTML (div)
+import MainFrame.Lenses (_currentSlot, _dashboardState, _subState, _toast, _tzOffset, _welcomeState)
 import MainFrame.Types (Action(..), ChildSlots, State)
-import Pickup.View (renderPickupState)
-import Play.View (renderPlayState)
+import Toast.View (renderToast)
+import Welcome.View (welcomeCard, welcomeScreen)
 
 render :: forall m. MonadAff m => State -> ComponentHTML Action ChildSlots m
 render state =
   let
-    wallets = view _wallets state
+    currentSlot = state ^. _currentSlot
 
-    newWalletNickname = view _newWalletNickname state
-
-    newWalletContractId = view _newWalletContractId state
-
-    remoteDataPubKey = view _remoteDataPubKey state
-
-    templates = view _templates state
+    tzOffset = state ^. _tzOffset
   in
-    case view _subState state of
-      Left pickupState -> PickupAction <$> renderPickupState wallets newWalletNickname newWalletContractId remoteDataPubKey pickupState
-      Right playState -> PlayAction <$> renderPlayState wallets newWalletNickname newWalletContractId remoteDataPubKey templates playState
+    div [ classNames [ "h-full" ] ]
+      $ case view _subState state of
+          Left _ ->
+            [ renderSubmodule _welcomeState WelcomeAction welcomeScreen state
+            , renderSubmodule _welcomeState WelcomeAction welcomeCard state
+            ]
+          Right _ ->
+            [ renderSubmodule _dashboardState DashboardAction (dashboardScreen { currentSlot, tzOffset }) state
+            , renderSubmodule _dashboardState DashboardAction (dashboardCard currentSlot) state
+            ]
+      <> [ renderSubmodule _toast ToastAction renderToast state ]

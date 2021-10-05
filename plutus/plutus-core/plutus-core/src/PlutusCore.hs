@@ -1,23 +1,26 @@
--- Why is it needed here, but not in 'Universe.hs'?
+-- Why is it needed here, but not in "Universe.Core"?
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE PatternSynonyms    #-}
 {-# LANGUAGE TypeApplications   #-}
-
 
 module PlutusCore
     (
       -- * Parser
-    parseProgram
+      parseProgram
     , parseTerm
     , parseType
     , parseScoped
     , topAlexPosn
     -- * Builtins
     , Some (..)
-    , TypeIn (..)
+    , SomeTypeIn (..)
+    , Kinded (..)
     , ValueOf (..)
+    , someValueOf
     , someValue
-    , Includes (..)
-    , IncludesAll
+    , Esc
+    , Contains (..)
+    , Includes
     , Closed (..)
     , EverywhereAll
     , knownUniOf
@@ -25,10 +28,14 @@ module PlutusCore
     , show
     , GEq (..)
     , deriveGEq
+    , HasUniApply (..)
+    , checkStar
+    , withApplicable
     , (:~:) (..)
-    , Lift
     , type (<:)
     , DefaultUni (..)
+    , pattern DefaultUniList
+    , pattern DefaultUniPair
     , DefaultFun (..)
     -- * AST
     , Term (..)
@@ -50,6 +57,15 @@ module PlutusCore
     , toTerm
     , termAnn
     , typeAnn
+    , tyVarDeclAnn
+    , tyVarDeclName
+    , tyVarDeclKind
+    , varDeclAnn
+    , varDeclName
+    , varDeclType
+    , tyDeclAnn
+    , tyDeclType
+    , tyDeclKind
     , mapFun
     -- * DeBruijn representation
     , DeBruijn (..)
@@ -65,6 +81,7 @@ module PlutusCore
     , formatDoc
     -- * Processing
     , HasUniques
+    , ToKind (..)
     , Rename (..)
     -- * Type checking
     , module TypeCheck
@@ -103,7 +120,6 @@ module PlutusCore
     , freshTyName
     -- * Evaluation
     , EvaluationResult (..)
-    , defBuiltinsRuntime
     -- * Combining programs
     , applyProgram
     -- * Benchmarking
@@ -112,18 +128,29 @@ module PlutusCore
     , kindSize
     , programSize
     , serialisedSize
+    -- * Budgeting defaults
+    , defaultBuiltinCostModel
+    , defaultBuiltinsRuntime
+    , defaultCekCostModel
+    , defaultCekMachineCosts
+    , defaultCekParameters
+    , defaultCostModelParams
+    , unitCekParameters
+    -- * CEK machine costs
+    , cekMachineCostsPrefix
+    , CekMachineCosts (..)
     ) where
 
 import           PlutusPrelude
 
-import           PlutusCore.Builtins
-import           PlutusCore.CBOR                  ()
-import qualified PlutusCore.Check.Uniques         as Uniques
+import qualified PlutusCore.Check.Uniques                                 as Uniques
 import           PlutusCore.Core
 import           PlutusCore.DeBruijn
+import           PlutusCore.Default
 import           PlutusCore.Error
 import           PlutusCore.Evaluation.Machine.Ck
-import           PlutusCore.Flat                  ()
+import           PlutusCore.Evaluation.Machine.ExBudgetingDefaults
+import           PlutusCore.Flat                                          ()
 import           PlutusCore.Lexer
 import           PlutusCore.Lexer.Type
 import           PlutusCore.Name
@@ -133,12 +160,13 @@ import           PlutusCore.Pretty
 import           PlutusCore.Quote
 import           PlutusCore.Rename
 import           PlutusCore.Size
-import           PlutusCore.TypeCheck             as TypeCheck
-import           PlutusCore.Universe
+import           PlutusCore.TypeCheck                                     as TypeCheck
+
+import           UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts
 
 import           Control.Monad.Except
-import qualified Data.ByteString.Lazy             as BSL
-import qualified Data.Text                        as T
+import qualified Data.ByteString.Lazy                                     as BSL
+import qualified Data.Text                                                as T
 
 -- | Given a file at @fibonacci.plc@, @fileType "fibonacci.plc"@ will display
 -- its type or an error message.
@@ -165,7 +193,7 @@ printType
         MonadError e m)
     => BSL.ByteString
     -> m T.Text
-printType bs = runQuoteT $ displayPlcDef <$> do
+printType bs = runQuoteT $ T.pack . show . pretty <$> do
     scoped <- parseScoped bs
     config <- getDefTypeCheckConfig topAlexPosn
     inferTypeOfProgram config scoped
@@ -221,7 +249,8 @@ format cfg = runQuoteT . fmap (displayBy cfg) . (rename <=< parseProgramDef)
 
 -- | Take one PLC program and apply it to another.
 applyProgram
-    :: Program tyname name uni fun ()
-    -> Program tyname name uni fun ()
-    -> Program tyname name uni fun ()
-applyProgram (Program _ _ t1) (Program _ _ t2) = Program () (defaultVersion ()) (Apply () t1 t2)
+    :: Monoid a
+    => Program tyname name uni fun a
+    -> Program tyname name uni fun a
+    -> Program tyname name uni fun a
+applyProgram (Program a1 _ t1) (Program a2 _ t2) = Program (a1 <> a2) (defaultVersion mempty) (Apply mempty t1 t2)

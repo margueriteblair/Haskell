@@ -30,7 +30,6 @@ let
     plutus-currency
     plutus-atomic-swap
     plutus-pay-to-wallet
-    prism-credential-manager
     prism-mirror
     prism-unlock-sto
     prism-unlock-exchange;
@@ -46,18 +45,18 @@ let
     in
     runCommand "pab-setup" { } ''
       echo "Creating PAB database"
-      ${pab} --config=${cfg} migrate
-      ${sqlite-interactive}/bin/sqlite3 ${conf.db-file} '.tables'
       mkdir $out
-      cp ${conf.db-file}* $out/
       cp ${cfg} $out/plutus-pab.yaml
+      ${pab-exes.plutus-pab-examples}/bin/plutus-pab-examples --config=$out/plutus-pab.yaml migrate
+      ${sqlite-interactive}/bin/sqlite3 ${conf.db-file} '.tables'
+      cp ${conf.db-file}* $out/
     '';
 
   # mock node, needs to be the same for all PABs
   node-port = "8082";
   db-file = "/tmp/pab-core.db";
 
-  pab = "${pab-exes.plutus-pab}/bin/plutus-pab";
+  pab-setup = "${pab-exes.plutus-pab-setup}/bin/plutus-pab-setup";
 
   primary-config = {
     inherit db-file client;
@@ -100,16 +99,7 @@ let
     echo "PAB database path: $DB_PATH"
     cat $CFG_PATH
     echo "-----------------------------------------------------------------------------"
-
-    ${pab} --config=$CFG_PATH contracts install --path ${plutus-currency}/bin/plutus-currency
-    ${pab} --config=$CFG_PATH contracts install --path ${plutus-atomic-swap}/bin/plutus-atomic-swap
-    ${pab} --config=$CFG_PATH contracts install --path ${plutus-game}/bin/plutus-game
-    ${pab} --config=$CFG_PATH contracts install --path ${plutus-pay-to-wallet}/bin/plutus-pay-to-wallet
-    ${pab} --config=$CFG_PATH contracts install --path ${prism-credential-manager}/bin/prism-credential-manager
-    ${pab} --config=$CFG_PATH contracts install --path ${prism-mirror}/bin/prism-mirror
-    ${pab} --config=$CFG_PATH contracts install --path ${prism-unlock-sto}/bin/prism-unlock-sto
-    ${pab} --config=$CFG_PATH contracts install --path ${prism-unlock-exchange}/bin/prism-unlock-exchange
-    ${pab} --config=$CFG_PATH ${cmd}
+    ${pab-exes.plutus-pab-examples}/bin/plutus-pab-examples --config=$CFG_PATH ${cmd}
   '';
 
   start-all-servers = runWithContracts (mkSetup primary-config) "all-servers";
@@ -117,8 +107,9 @@ let
   start-second-pab = runWithContracts (mkSetup secondary-config) "client-services";
 
 in
-runCommand "pab-demo-scripts" { } ''
+# Mysteriously broken on the Hydra mac builders, disable until/unless we figure it out
+lib.meta.addMetaAttrs { platforms = lib.platforms.linux; } (runCommand "pab-demo-scripts" { } ''
   mkdir -p $out/bin
   cp ${start-all-servers} $out/bin/pab-start-all-servers
   cp ${start-second-pab} $out/bin/pab-start-second-pab
-''
+'')

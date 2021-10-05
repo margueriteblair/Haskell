@@ -1,6 +1,6 @@
-{-# LANGUAGE NamedFieldPuns    #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE NamedFieldPuns     #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings  #-}
 
 module VestingSimulations where
 
@@ -10,15 +10,15 @@ import           Playground.Types      (ContractCall (AddBlocks), Simulation (Si
                                         simulationActions, simulationId, simulationName, simulationWallets)
 import           SimulationUtils       (callEndpoint, simulatorWallet)
 import           Vesting               (registeredKnownCurrencies)
-import           Wallet.Emulator.Types (Wallet (Wallet), getWallet)
+import           Wallet.Emulator.Types (WalletNumber (..))
 
 simulations :: [Simulation]
 simulations = [vestRetrieve]
   where
-    wallet1 = Wallet {getWallet = 1}
-    wallet2 = Wallet {getWallet = 2}
+    wallet1 = WalletNumber 1
+    wallet2 = WalletNumber 2
     simulationWallets =
-        simulatorWallet registeredKnownCurrencies 100 <$> [wallet1, wallet2]
+        simulatorWallet registeredKnownCurrencies 100_000_000 <$> [wallet1, wallet2]
     vestRetrieve =
         Simulation
             { simulationName = "Vest/Retrieve"
@@ -27,15 +27,15 @@ simulations = [vestRetrieve]
             , simulationActions =
                   [ vestFunds wallet2
                   , AddBlocks 20
-                  , retrieveFunds wallet1 (lovelaceValueOf 4)
+                  , retrieveFunds wallet1 (lovelaceValueOf 40_000_000)
                   , AddBlocks 40
-                  , retrieveFunds wallet1 (lovelaceValueOf 4)
+                  , retrieveFunds wallet1 (lovelaceValueOf 40_000_000)
                   , AddBlocks 1
                   ]
             }
 
-vestFunds :: Wallet -> SimulatorAction
+vestFunds :: WalletNumber -> SimulatorAction
 vestFunds caller = callEndpoint caller "vest funds" ()
 
-retrieveFunds :: Wallet -> Value -> SimulatorAction
+retrieveFunds :: WalletNumber -> Value -> SimulatorAction
 retrieveFunds caller = callEndpoint caller "retrieve funds"

@@ -1,28 +1,21 @@
 module View.Events
-  ( eventsPane
-  , utxoIndexPane
+  ( utxoIndexPane
   ) where
 
 import Prelude
-import Bootstrap (badgePrimary_, cardBody_, cardHeader_, card_, nbsp)
-import Bootstrap.Extra (preWrap_)
+import Bootstrap (cardBody_, cardHeader_, card_)
 import Chain.View as Chain
-import Data.Array as Array
-import Data.Foldable.Extra (countConsecutive)
 import Data.Lens (view)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple.Nested (type (/\), (/\))
-import Halogen.HTML (HTML, div_, h2_, text)
+import Halogen.HTML (HTML, h2_, text)
 import Ledger.Index (UtxoIndex)
 import Plutus.V1.Ledger.Tx (TxOut, TxOutRef)
 import Playground.Lenses (_utxoIndexEntries)
-import Plutus.PAB.Events (PABEvent)
-import Plutus.PAB.Effects.Contract.ContractExe (ContractExe)
 import Types (HAction(..))
-import View.Pretty (class Pretty, pretty)
 
-utxoIndexPane :: forall p. UtxoIndex -> HTML p HAction
+utxoIndexPane :: forall p a. UtxoIndex -> HTML p (HAction a)
 utxoIndexPane utxoIndex =
   card_
     [ cardHeader_
@@ -31,28 +24,5 @@ utxoIndexPane utxoIndex =
         (utxoEntryPane <$> Map.toUnfoldable (view _utxoIndexEntries utxoIndex))
     ]
 
-utxoEntryPane :: forall p. (TxOutRef /\ TxOut) -> HTML p HAction
+utxoEntryPane :: forall p a. (TxOutRef /\ TxOut) -> HTML p (HAction a)
 utxoEntryPane (txOutRef /\ txOut) = ChainAction <$> Chain.txOutOfView (const Nothing) false txOut Nothing
-
-eventsPane :: forall p i. Array (PABEvent ContractExe) -> HTML p i
-eventsPane events =
-  card_
-    [ cardHeader_
-        [ h2_ [ text "Event log" ]
-        , text (show (Array.length events))
-        , nbsp
-        , text "Event(s)"
-        ]
-    , cardBody_ [ div_ (countedEventPane <$> countConsecutive events) ]
-    ]
-
-countedEventPane :: forall t p i. Pretty t => Int /\ PABEvent t -> HTML p i
-countedEventPane (count /\ event) =
-  div_
-    [ preWrap_
-        [ badgePrimary_
-            [ text $ show count <> "x" ]
-        , nbsp
-        , pretty event
-        ]
-    ]

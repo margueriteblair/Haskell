@@ -38,10 +38,6 @@ common lang
     -Wall -Wnoncanonical-monad-instances
     -Wincomplete-uni-patterns -Wincomplete-record-updates
     -Wredundant-constraints -Widentities
-    -pgmL unlit -optL--ghc -optL--language=haskell -optL--from=asciidoc
-
-  if !(impl(ghcjs) || os(ghcjs))
-    build-depends: plutus-tx-plugin -any
 
   if flag(defer-plugin-errors)
     ghc-options: -fplugin-opt PlutusTx.Plugin:defer-errors
@@ -49,27 +45,34 @@ common lang
 library
   import: lang
   hs-source-dirs: src
+  ghc-options:
+    -Wunused-packages
   build-depends:
     aeson -any,
     base -any,
     bytestring,
     containers -any,
+    data-default -any,
     deriving-aeson -any,
     lens,
     mtl,
     newtype-generics,
     template-haskell -any,
-    plutus-tx -any,
+    plutus-chain-index -any,
     plutus-contract -any,
     plutus-core,
     plutus-ledger,
+    plutus-tx -any,
     plutus-use-cases,
     text,
     vector,
     sbv >= 8.4,
     scientific -any,
     wl-pprint -any,
-    freer-simple -any
+    freer-simple -any,
+    semigroups -any
+  if !(impl(ghcjs) || os(ghcjs))
+    build-depends: plutus-tx-plugin -any
   exposed-modules:
     Language.Marlowe
     Language.Marlowe.Extended
@@ -79,17 +82,17 @@ library
     Language.Marlowe.Pretty
     Language.Marlowe.Analysis.FSSemantics
   other-modules:
-  build-tool-depends: unlit:unlit -any
 
-test-suite marlowe-test
+test-suite marlowe-test-long-running
     import: lang
-    hs-source-dirs: test
+    hs-source-dirs:
+      test
+      pab
     type: exitcode-stdio-1.0
-    main-is: Spec.hs
+    main-is: SpecLongRunning.hs
     other-modules:
-        Spec.Marlowe.Common
-        Spec.Marlowe.Marlowe
-        Spec.Marlowe.AutoExecute
+        Spec.PAB.Workflow
+        MarloweContract
     build-depends:
         aeson -any,
         base >=4.9 && <5,
@@ -97,7 +100,6 @@ test-suite marlowe-test
         data-default  -any,
         hint -any,
         lens -any,
-        memory -any,
         bytestring -any,
         freer-simple -any,
         tasty -any,
@@ -106,25 +108,68 @@ test-suite marlowe-test
         text -any,
         serialise,
         cborg,
-        plutus-ledger -any,
+        plutus-chain-index -any,
         plutus-contract -any,
+        plutus-ledger -any,
         marlowe,
-        sbv >= 8.4,
         plutus-tx -any,
         QuickCheck,
         template-haskell -any,
-        streaming -any
+        streaming -any,
+        plutus-pab -any,
+        async -any,
+        prettyprinter -any,
+        purescript-bridge -any,
+        servant-client -any,
+        http-client -any,
+        websockets -any,
+        network -any,
+        openapi3 -any,
 
--- | The Marlowe app, an executable that can be run in the PAB
-executable marlowe-app
-  import: lang
-  main-is: Main.hs
-  hs-source-dirs: app
-  build-depends:
-    base >= 4.9 && < 5,
-    plutus-pab -any,
-    plutus-contract -any,
-    marlowe
+test-suite marlowe-test
+    import: lang
+    hs-source-dirs:
+      test
+      pab
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    other-modules:
+        Spec.Marlowe.Common
+        Spec.Marlowe.Marlowe
+        Spec.Marlowe.AutoExecute
+        MarloweContract
+    build-depends:
+        aeson -any,
+        base >=4.9 && <5,
+        containers -any,
+        data-default  -any,
+        hint -any,
+        lens -any,
+        bytestring -any,
+        freer-simple -any,
+        tasty -any,
+        tasty-hunit -any,
+        tasty-quickcheck,
+        text -any,
+        serialise,
+        cborg,
+        plutus-chain-index -any,
+        plutus-contract -any,
+        plutus-ledger -any,
+        marlowe,
+        plutus-tx -any,
+        QuickCheck,
+        template-haskell -any,
+        streaming -any,
+        plutus-pab -any,
+        async -any,
+        prettyprinter -any,
+        purescript-bridge -any,
+        servant-client -any,
+        http-client -any,
+        websockets -any,
+        network -any,
+        openapi3
 
 -- | The PAB Specialised to the marlowe contract(s)
 executable marlowe-pab
@@ -133,14 +178,22 @@ executable marlowe-pab
   hs-source-dirs: pab
   ghc-options:
     -threaded
+  other-modules:
+    MarloweContract
   build-depends:
     base >= 4.9 && < 5,
-    plutus-pab -any,
-    plutus-contract -any,
-    marlowe,
     aeson -any,
+    containers -any,
+    data-default -any,
     freer-simple -any,
     prettyprinter -any,
     freer-extras -any,
-    plutus-ledger -any
-  
+    plutus-contract -any,
+    plutus-ledger -any,
+    plutus-pab -any,
+    plutus-tx -any,
+    purescript-bridge -any,
+    marlowe -any,
+    openapi3,
+  if !(impl(ghcjs) || os(ghcjs))
+    build-depends: plutus-tx-plugin -any

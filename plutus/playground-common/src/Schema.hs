@@ -43,33 +43,37 @@ module Schema
     , formArgumentToJson
     ) where
 
-import           Crypto.Hash                 (Digest, SHA256)
-import           Data.Aeson                  (FromJSON, ToJSON, toJSON)
-import qualified Data.Aeson                  as JSON
-import           Data.Bifunctor              (first)
-import           Data.Eq.Deriving            (deriveEq1)
-import           Data.Functor.Foldable       (Fix (Fix), cata)
-import qualified Data.HashMap.Strict         as HashMap
+import           Crypto.Hash                              (Digest, SHA256)
+import           Data.Aeson                               (FromJSON, ToJSON, toJSON)
+import qualified Data.Aeson                               as JSON
+import           Data.Bifunctor                           (first)
+import           Data.Eq.Deriving                         (deriveEq1)
+import           Data.Functor.Foldable                    (Fix (Fix), cata)
+import qualified Data.HashMap.Strict                      as HashMap
 import qualified Data.Map
-import           Data.Proxy                  (Proxy)
-import           Data.Text                   (Text)
-import qualified Data.Text                   as Text
-import           Data.UUID                   (UUID)
-import           GHC.Generics                (C1, Constructor, D1, Generic, K1 (K1), M1 (M1), Rec0, Rep, S1, Selector,
-                                              U1, conIsRecord, conName, from, selName, (:*:) ((:*:)), (:+:) (L1, R1))
-import           Ledger                      (Ada, CurrencySymbol, DatumHash, Interval, PubKey, PubKeyHash,
-                                              RedeemerHash, Signature, Slot, SlotRange, TokenName, ValidatorHash, Value)
-import           Ledger.Bytes                (LedgerBytes)
-import           Plutus.Contract.Effects.RPC (RPCParams)
+import           Data.Proxy                               (Proxy)
+import           Data.Text                                (Text)
+import qualified Data.Text                                as Text
+import           Data.UUID                                (UUID)
+import           GHC.Generics                             (C1, Constructor, D1, Generic, K1 (K1), M1 (M1), Rec0, Rep,
+                                                           S1, Selector, U1, conIsRecord, conName, from, selName,
+                                                           (:*:) ((:*:)), (:+:) (L1, R1))
+import           Ledger                                   (Ada, AssetClass, CurrencySymbol, DatumHash, Interval,
+                                                           POSIXTime, POSIXTimeRange, PubKey, PubKeyHash, RedeemerHash,
+                                                           Signature, TokenName, TxId, TxOutRef, ValidatorHash, Value)
+import           Ledger.Bytes                             (LedgerBytes)
+import           Plutus.Contract.Secrets                  (SecretArgument (EndpointSide, UserSide))
+import           Plutus.Contract.StateMachine.ThreadToken (ThreadToken)
 import qualified PlutusTx.AssocMap
-import qualified PlutusTx.Prelude            as P
-import           Wallet.Emulator.Wallet      (Wallet)
-import           Wallet.Types                (ContractInstanceId)
+import qualified PlutusTx.Prelude                         as P
+import qualified PlutusTx.Ratio                           as P
+import           Wallet.Emulator.Wallet                   (Wallet, WalletId, WalletNumber)
+import           Wallet.Types                             (ContractInstanceId)
 
-import           Text.Show.Deriving          (deriveShow1)
+import qualified Data.OpenApi.Schema                      as OpenApi
+import           Text.Show.Deriving                       (deriveShow1)
 
-{-# ANN module ("HLint: ignore Avoid restricted function" :: Text)
-        #-}
+{- HLINT ignore "Avoid restricted function" -}
 
 data FormSchema
     = FormSchemaUnit
@@ -87,11 +91,11 @@ data FormSchema
     | FormSchemaObject [(String, FormSchema)]
     -- Blessed types that get their own special UI widget.
     | FormSchemaValue
-    | FormSchemaSlotRange
+    | FormSchemaPOSIXTimeRange
     -- Exceptions.
     | FormSchemaUnsupported String
     deriving (Show, Eq, Generic)
-    deriving anyclass (FromJSON, ToJSON)
+    deriving anyclass (FromJSON, ToJSON, OpenApi.ToSchema)
 
 ------------------------------------------------------------
 type FormArgument = Fix FormArgumentF
@@ -109,7 +113,7 @@ data FormArgumentF a
     | FormTupleF a a
     | FormObjectF [(String, a)]
     | FormValueF Value
-    | FormSlotRangeF (Interval Slot)
+    | FormPOSIXTimeRangeF (Interval POSIXTime)
     | FormUnsupportedF String
     deriving (Show, Generic, Eq, Functor)
     deriving anyclass (ToJSON, FromJSON)
@@ -137,7 +141,7 @@ formArgumentToJson = cata algebra
         JSON.Object . HashMap.fromList . map (first Text.pack) <$>
         traverse sequence vs
     algebra (FormValueF v) = justJSON v
-    algebra (FormSlotRangeF v) = justJSON v
+    algebra (FormPOSIXTimeRangeF v) = justJSON v
     algebra (FormUnsupportedF _) = Nothing
     justJSON ::
            forall a. ToJSON a
@@ -219,6 +223,12 @@ instance ToSchema Integer where
 instance ToArgument Integer where
     toArgument = Fix . FormIntegerF . Just
 
+instance ToSchema P.Rational where
+    toSchema = FormSchemaTuple FormSchemaInteger FormSchemaInteger
+
+instance ToArgument P.Rational where
+    toArgument r = Fix $ FormTupleF (toArgument $ P.numerator r) (toArgument $ P.denominator r)
+
 instance ToSchema Text where
     toSchema = FormSchemaString
 
@@ -248,6 +258,8 @@ instance ToArgument String where
 
 instance {-# OVERLAPPABLE #-} (ToSchema a, ToArgument a) => ToArgument [a] where
     toArgument xs = Fix $ FormArrayF (toSchema @a) (toArgument <$> xs)
+
+instance ToSchema AssetClass
 
 ------------------------------------------------------------
 class GenericToSchema f where
@@ -347,7 +359,7 @@ deriveShow1 ''FormArgumentF
 instance ToSchema (Digest SHA256) where
     toSchema = FormSchemaHex
 
-instance ToSchema P.ByteString where
+instance ToSchema P.BuiltinByteString where
     toSchema = toSchema @String
 
 instance (ToSchema k, ToSchema v) =>
@@ -365,10 +377,18 @@ instance ToSchema LedgerBytes where
 instance ToSchema UUID where
     toSchema = toSchema @String
 
-instance ToSchema SlotRange where
-    toSchema = FormSchemaSlotRange
+instance ToSchema WalletId where
+    toSchema = toSchema @String
+
+instance ToSchema POSIXTime where
+    toSchema = FormSchemaInteger
+
+instance ToSchema POSIXTimeRange where
+    toSchema = FormSchemaPOSIXTimeRange
 
 deriving anyclass instance ToSchema Ada
+
+deriving anyclass instance ToSchema ContractInstanceId
 
 deriving anyclass instance ToSchema CurrencySymbol
 
@@ -382,18 +402,33 @@ deriving anyclass instance ToSchema RedeemerHash
 
 deriving anyclass instance ToSchema Signature
 
-deriving anyclass instance ToSchema Slot
+deriving anyclass instance ToSchema ThreadToken
 
 deriving anyclass instance ToSchema TokenName
+
+deriving anyclass instance ToSchema TxId
+
+deriving anyclass instance ToSchema TxOutRef
 
 deriving anyclass instance ToSchema ValidatorHash
 
 deriving anyclass instance ToSchema Wallet
 
-deriving anyclass instance ToArgument Wallet
+deriving anyclass instance ToSchema WalletNumber
+
 
 deriving anyclass instance ToArgument Ada
 
-deriving anyclass instance ToSchema ContractInstanceId
+deriving anyclass instance ToArgument Wallet
 
-deriving anyclass instance ToSchema a => ToSchema (RPCParams a)
+deriving anyclass instance ToArgument WalletNumber
+
+instance ToArgument WalletId where
+    toArgument = Fix . FormStringF . Just . show
+
+instance forall a. ToSchema a => ToSchema (SecretArgument a) where
+  toSchema = toSchema @a
+
+instance forall a. ToArgument a => ToArgument (SecretArgument a) where
+  toArgument (UserSide a)     = toArgument a
+  toArgument (EndpointSide _) = Fix $ FormUnsupportedF "endpoint side secrets are not supported in toArgument"

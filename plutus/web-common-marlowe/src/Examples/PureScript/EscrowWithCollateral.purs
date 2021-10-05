@@ -1,20 +1,44 @@
 module Examples.PureScript.EscrowWithCollateral
   ( contractTemplate
+  , fullExtendedContract
   , metaData
-  , extendedContract
+  , fixedTimeoutContract
+  , defaultSlotContent
   ) where
 
 import Prelude
-import Data.BigInteger (BigInteger)
+import Data.BigInteger (BigInteger, fromInt)
+import Data.Map as Map
+import Data.Map (Map)
 import Data.Tuple.Nested (type (/\), (/\))
 import Examples.Metadata as Metadata
 import Marlowe.Extended (Action(..), Case(..), Contract(..), Payee(..), Timeout(..), Value(..))
-import Marlowe.Extended.Metadata (MetaData)
-import Marlowe.Extended.Template (ContractTemplate)
+import Marlowe.Extended.Metadata (MetaData, ContractTemplate)
+import Marlowe.Template (TemplateContent(..), fillTemplate)
 import Marlowe.Semantics (Bound(..), ChoiceId(..), Party(..), Token(..), ChoiceName)
 
 contractTemplate :: ContractTemplate
-contractTemplate = { metaData, extendedContract }
+contractTemplate = { metaData, extendedContract: fullExtendedContract }
+
+fixedTimeoutContract :: Contract
+fixedTimeoutContract =
+  fillTemplate
+    ( TemplateContent
+        { slotContent: defaultSlotContent
+        , valueContent: Map.empty
+        }
+    )
+    fullExtendedContract
+
+defaultSlotContent :: Map String BigInteger
+defaultSlotContent =
+  Map.fromFoldable
+    [ "Collateral deposit by seller timeout" /\ fromInt 600
+    , "Deposit of collateral by buyer timeout" /\ fromInt 1200
+    , "Deposit of price by buyer timeout" /\ fromInt 1800
+    , "Dispute by buyer timeout" /\ fromInt 3000
+    , "Complaint deadline" /\ fromInt 3600
+    ]
 
 metaData :: MetaData
 metaData = Metadata.escrowWithCollateral
@@ -50,7 +74,7 @@ disputeTimeout :: Timeout
 disputeTimeout = SlotParam "Dispute by buyer timeout"
 
 answerTimeout :: Timeout
-answerTimeout = SlotParam "Seller's response timeout"
+answerTimeout = SlotParam "Complaint deadline"
 
 depositCollateral :: Party -> Timeout -> Contract -> Contract -> Contract
 depositCollateral party timeout timeoutContinuation continuation =
@@ -91,8 +115,8 @@ choices timeout chooser timeoutContinuation list =
 sellerToBuyer :: Contract -> Contract
 sellerToBuyer = Pay seller (Account buyer) ada price
 
-extendedContract :: Contract
-extendedContract =
+fullExtendedContract :: Contract
+fullExtendedContract =
   depositCollateral seller sellerCollateralTimeout Close
     $ depositCollateral buyer buyerCollateralTimeout Close
     $ deposit depositTimeout Close

@@ -17,11 +17,10 @@ module PlutusCore.Generators.Internal.Denotation
 
 import           PlutusCore.Generators.Internal.Dependent
 
-import           PlutusCore.Builtins
 import           PlutusCore.Constant
 import           PlutusCore.Core
+import           PlutusCore.Default
 import           PlutusCore.Name
-import           PlutusCore.Universe
 
 import           Data.Dependent.Map                       (DMap)
 import qualified Data.Dependent.Map                       as DMap
@@ -119,15 +118,11 @@ typedBuiltins
 --     . insertBuiltin QuotientInteger
 --     . insertBuiltin ModInteger
     . insertBuiltin LessThanInteger
-    . insertBuiltin LessThanEqInteger
-    . insertBuiltin GreaterThanInteger
-    . insertBuiltin GreaterThanEqInteger
-    . insertBuiltin EqInteger
-    . insertBuiltin Concatenate
-    . insertBuiltin TakeByteString
-    . insertBuiltin DropByteString
-    . insertBuiltin SHA2
-    . insertBuiltin SHA3
+    . insertBuiltin LessThanEqualsInteger
+    . insertBuiltin EqualsInteger
+    . insertBuiltin AppendByteString
+    . insertBuiltin Sha2_256
+    . insertBuiltin Sha3_256
 --     . insertBuiltin VerifySignature
-    . insertBuiltin EqByteString
+    . insertBuiltin EqualsByteString
     $ DenotationContext mempty
