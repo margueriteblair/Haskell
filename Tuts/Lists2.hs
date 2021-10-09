@@ -34,6 +34,7 @@ isAsc (x:y:xs) =
 --4. We have a list if int tuples, they represent nodes that are connected to one another
 --Create a function hasPath that determines if a path from one node to another
     --exists within a directed graph
+    --recursion, algorithms
 hasPath :: [(Int, Int)] -> Int -> Int -> Bool
 hasPath [] x y = x == y
 hasPath xs x y
