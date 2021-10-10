@@ -30,6 +30,9 @@ import           Text.Printf         (printf)
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 {-# INLINABLE mkValidator #-}
+--This validator will take any datum, redeemer, and context
+--In this sense it acts as a gift, because once you put money in this script address
+--Anyone is able to take it from the blockchain
 mkValidator :: Data -> Data -> Data -> ()
 mkValidator _ _ _ = ()
 
