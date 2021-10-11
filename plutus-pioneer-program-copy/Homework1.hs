@@ -36,6 +36,8 @@ mkValidator _ (a, b) _ = a == b
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
+    type instance DatumType Typed = ()
+    type instance RedeemerType Typed = (Bool, Bool)
 -- Implement the instance!
 
 typedValidator :: Scripts.TypedValidator Typed
