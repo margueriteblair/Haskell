@@ -48,7 +48,7 @@ typedValidator = Scripts.mkTypedValidator @Typed
         wrap = Scripts.wrapValidator @() @(Bool, Bool)
 
 validator :: Validator
-validator = undefined -- FIX ME!
+validator = Scripts.validatorScript typedValidator
 
 valHash :: Ledger.ValidatorHash
 valHash = undefined -- FIX ME!
