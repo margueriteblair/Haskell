@@ -43,7 +43,7 @@ PlutusTx.unstableMakeIsData ''MyRedeemer
 {-# INLINABLE mkValidator #-}
 -- This should validate if and only if the two Booleans in the redeemer are equal!
 mkValidator :: () -> MyRedeemer -> ScriptContext -> Bool
-mkValidator _ _ _ = True -- FIX ME!
+mkValidator _ (MyRedeemer a b) _ = traceIfFalse "wrong redeemer" $ a == b
 
 data Typed
 instance Scripts.ValidatorTypes Typed where
