@@ -34,6 +34,7 @@ import           Playground.Types     (KnownCurrency (..))
 import           Prelude              (IO, Semigroup (..), Show (..), String)
 import           Text.Printf          (printf)
 
+--Our arbitary piece of data, the datum here will be the beneficiary of the funds, and the deadline for when we can unlock them
 data VestingDatum = VestingDatum
     { beneficiary :: PubKeyHash
     , deadline    :: POSIXTime
