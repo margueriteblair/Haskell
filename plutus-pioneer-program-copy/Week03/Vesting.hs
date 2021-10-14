@@ -43,6 +43,8 @@ data VestingDatum = VestingDatum
 PlutusTx.unstableMakeIsData ''VestingDatum
 
 {-# INLINABLE mkValidator #-}
+--Normally, the redeemer is some type of function to see if our TX can be consumed, but then that info itself here is contained in the TX
+--SO, it's fine if we just leave the redeemer as () here.
 mkValidator :: VestingDatum -> () -> ScriptContext -> Bool
 mkValidator dat () ctx = traceIfFalse "beneficiary's signature missing" signedByBeneficiary &&
                          traceIfFalse "deadline not reached" deadlineReached
