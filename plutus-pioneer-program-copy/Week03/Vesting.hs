@@ -34,6 +34,7 @@ import           Playground.Types     (KnownCurrency (..))
 import           Prelude              (IO, Semigroup (..), Show (..), String)
 import           Text.Printf          (printf)
 --The Wallet.Emulator that we can load into the repl will also give us a "Wallet" datatype. This is basically just a wrapper around Integer
+--Wallet <Integer> and in this format we can get the pubKeyHash of the wallet
 --Our arbitary piece of data, the datum here will be the beneficiary of the funds, and the deadline for when we can unlock them
 data VestingDatum = VestingDatum
     { beneficiary :: PubKeyHash
