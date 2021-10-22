@@ -50,6 +50,15 @@ mkValidator vd () ctx
     | (beneficiary1 vd `elem` sigs) && (to (deadline vd) `contains` range) = True
     | (beneficiary2 vd `elem` sigs) && (from ((deadline vd) + 1)) `contains range`) = True
     | otherwise = False
+  where
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+
+    sigs :: [PubKeyHash]
+    sigs = txInfoSignatories info
+
+    range :: POSIXTimeRange
+    range = txInfoValidRange info
 
 data Vesting
 instance Scripts.ValidatorTypes Vesting where
