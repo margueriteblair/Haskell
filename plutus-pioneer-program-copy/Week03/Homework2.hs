@@ -35,8 +35,11 @@ import           Text.Printf          (printf)
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 {-# INLINABLE mkValidator #-}
-mkValidator :: PubKeyHash -> POSIXTime -> () -> ScriptContext -> Bool
-mkValidator _ _ _ _ = False -- FIX ME!
+--parameter is pubkeyhash
+--very similar to the first example
+--we specify what person we want to give the ada to
+mkValidator :: PubKeyHash -> Slot -> () -> ScriptContext -> Bool
+mkValidator p s _ ctx = False -- FIX ME!
 
 data Vesting
 instance Scripts.ValidatorTypes Vesting where
