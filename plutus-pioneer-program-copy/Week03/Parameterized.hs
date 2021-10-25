@@ -43,7 +43,8 @@ data VestingParam = VestingParam
 PlutusTx.makeLift ''VestingParam
 
 {-# INLINABLE mkValidator #-}
---4 arguments
+--4 arguments, not just datum, redeemer, and context
+--We add the VestingParam sothat we can PARAMETERIZE the contracts, so multiple instances of the script address can be made
 mkValidator :: VestingParam -> () -> () -> ScriptContext -> Bool
 mkValidator p () () ctx = traceIfFalse "beneficiary's signature missing" signedByBeneficiary &&
                           traceIfFalse "deadline not reached" deadlineReached
