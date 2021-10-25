@@ -11,7 +11,9 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 
-module Week03.Homework2 where
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
+module Week03.Solution2 where
 
 import           Control.Monad        hiding (fmap)
 import           Data.Aeson           (ToJSON, FromJSON)
@@ -29,17 +31,23 @@ import           Ledger.Ada           as Ada
 import           Playground.Contract  (printJson, printSchemas, ensureKnownCurrencies, stage, ToSchema)
 import           Playground.TH        (mkKnownCurrencies, mkSchemaDefinitions)
 import           Playground.Types     (KnownCurrency (..))
-import           Prelude              (IO, Semigroup (..), Show (..), String, undefined)
+import           Prelude              (IO, Semigroup (..), Show (..), String)
 import           Text.Printf          (printf)
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
-
 {-# INLINABLE mkValidator #-}
---parameter is pubkeyhash
---very similar to the first example
---we specify what person we want to give the ada to
-mkValidator :: PubKeyHash -> Slot -> () -> ScriptContext -> Bool
-mkValidator p s _ ctx = False -- FIX ME!
+mkValidator :: PubKeyHash -> POSIXTime -> () -> ScriptContext -> Bool
+mkValidator pkh s () ctx =
+    traceIfFalse "beneficiary's signature missing" checkSig      &&
+    traceIfFalse "deadline not reached"            checkDeadline
+  where
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+
+    checkSig :: Bool
+    checkSig = pkh `elem` txInfoSignatories info
+
+    checkDeadline :: Bool
+    checkDeadline = from s `contains` txInfoValidRange info
 
 data Vesting
 instance Scripts.ValidatorTypes Vesting where
@@ -47,13 +55,17 @@ instance Scripts.ValidatorTypes Vesting where
     type instance RedeemerType Vesting = ()
 
 typedValidator :: PubKeyHash -> Scripts.TypedValidator Vesting
-typedValidator = undefined -- IMPLEMENT ME!
+typedValidator p = Scripts.mkTypedValidator @Vesting
+    ($$(PlutusTx.compile [|| mkValidator ||]) `PlutusTx.applyCode` PlutusTx.liftCode p)
+    $$(PlutusTx.compile [|| wrap ||])
+  where
+    wrap = Scripts.wrapValidator @POSIXTime @()
 
 validator :: PubKeyHash -> Validator
-validator = undefined -- IMPLEMENT ME!
+validator = Scripts.validatorScript . typedValidator
 
 scrAddress :: PubKeyHash -> Ledger.Address
-scrAddress = undefined -- IMPLEMENT ME!
+scrAddress = scriptAddress . validator
 
 data GiveParams = GiveParams
     { gpBeneficiary :: !PubKeyHash
