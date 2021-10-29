@@ -1,9 +1,8 @@
 main :: IO ()
-main = putStrLn "Hello World"
+main = bar
 
 bar :: IO ()
 bar = getLine >>= \s ->
     getLine >>= \t ->
         putStrLn (s ++ " " ++ t)
 
---hi
