@@ -4,6 +4,8 @@ import Text.Read (readMaybe)
 import Week04.Monad
 
 foo :: String -> String -> String -> Maybe Int
+--if all strings can be successfully parsed as ints, then you return the sum
+--if one of the parses fails, then you return nothing
 foo x y z = case readMaybe x of
     Nothing -> Nothing
     Just k  -> case readMaybe y of
@@ -12,6 +14,7 @@ foo x y z = case readMaybe x of
             Nothing -> Nothing
             Just m  -> Just (k + l + m)
 
+--bind maybe function
 bindMaybe :: Maybe a -> (a -> Maybe b) -> Maybe b
 bindMaybe Nothing  _ = Nothing
 bindMaybe (Just x) f = f x
